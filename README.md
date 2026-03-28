@@ -1,24 +1,37 @@
 # gate
 
-Stripe Checkout + API key credits middleware for Hono and Express.
+`gate` adds prepaid API credits to Hono and Express routes using Stripe Checkout.
 
-## What this package does
+## Current scope
 
-`gate` puts a paid access layer in front of an API route:
+What works now:
 
-1. Request has a valid key with credits left: pass through and decrement credits.
-2. No key from a browser client: redirect to Stripe Checkout.
-3. No key from an API/agent client: return `402` JSON with pricing + `checkout_url`.
-4. Key exists but credits are exhausted: return `402` JSON with a refill `checkout_url`.
+- Route middleware for Hono and Express.
+- API key issuance after checkout success.
+- Credit decrement on each valid request.
+- Browser redirect flow + API/agent `402` JSON flow.
+- Stripe Connect account targeting via `connectId`.
 
-After a successful checkout, gate issues an API key (`gate_live_...` or `gate_test_...`) and stores the starting credit balance.
+What is not in this package:
 
-## What this package does not do (yet)
+- Usage metering (this is credit-pack billing only).
+- Subscriptions or invoicing.
+- Hosted proxy.
+- x402/MPP protocol headers (current non-browser response is JSON `402`).
 
-- No usage metering (credits only).
-- No subscriptions or invoicing.
-- No hosted proxy.
-- No x402/MPP wire headers. Current non-browser flow is JSON `402`.
+## Request behavior
+
+For a gated route:
+
+1. Valid key with credits: request passes, credits decrement by 1.
+2. No key + browser client: `302` redirect to Stripe Checkout.
+3. No key + non-browser client: `402` JSON with `checkout_url`.
+4. Valid key with zero credits: `402` JSON with refill `checkout_url`.
+
+On infrastructure errors:
+
+- `failMode: "open"` (default): allow request through.
+- `failMode: "closed"`: return `503`.
 
 ## Install
 
@@ -26,7 +39,7 @@ After a successful checkout, gate issues an API key (`gate_live_...` or `gate_te
 npm install gate stripe
 ```
 
-Install one framework adapter:
+Install the adapter for your framework:
 
 ```bash
 npm install hono
@@ -34,7 +47,9 @@ npm install hono
 npm install express
 ```
 
-## Quick start (Hono)
+## Quickstart (Hono)
+
+### 1. Mount gate
 
 ```ts
 import { Hono } from "hono";
@@ -47,8 +62,7 @@ const billing = mountGate({
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
-    // optional: direct charges to connected account
-    connectId: process.env.STRIPE_CONNECT_ACCOUNT_ID,
+    connectId: process.env.STRIPE_CONNECT_ACCOUNT_ID, // optional
   },
 });
 
@@ -58,11 +72,34 @@ app.get("/api/data", (c) => c.json({ ok: true }));
 const gateRoutes = new Hono();
 billing.routes(gateRoutes);
 app.route("/__gate", gateRoutes);
-
-export default app;
 ```
 
-## Quick start (Express)
+### 2. Verify flow in test mode
+
+Set `GATE_MODE=test` and run your app.
+
+First call (no key) should return `402`:
+
+```bash
+curl -i http://localhost:3000/api/data
+```
+
+Issue a test key through success route:
+
+```bash
+curl "http://localhost:3000/__gate/success?session_id=cs_test_demo" \
+  -H "accept: application/json"
+```
+
+Use returned `api_key`:
+
+```bash
+API_KEY="gate_test_..."
+curl -i http://localhost:3000/api/data \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+## Quickstart (Express)
 
 ```ts
 import express from "express";
@@ -82,73 +119,77 @@ const billing = mountGate({
 app.use("/api", billing.middleware);
 app.get("/api/data", (_req, res) => res.json({ ok: true }));
 
+// Mount before express.json() so webhook uses raw body for signature verification.
 app.use("/__gate", billing.routes());
 
 app.listen(3000);
 ```
 
-If you use `express.json()` globally, mount `"/__gate"` before it so Stripe webhook signature verification still has raw body access.
-
 ## Required routes
 
-`mountGate` exposes two route handlers that must be reachable by Stripe/browser callbacks:
+`mountGate` exposes handlers that must be reachable:
 
 - `GET /__gate/success?session_id=...`
 - `POST /__gate/webhook`
 
-The middleware creates Stripe checkout sessions with `success_url` pointing to `/__gate/success`.
+`/success` is used for key issuance after checkout completion.
+`/webhook` verifies Stripe signatures and handles `checkout.session.completed`.
 
-## Authentication formats accepted
+## Live mode checklist
+
+1. Set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`.
+2. Expose `GET /__gate/success` and `POST /__gate/webhook` on your public base URL.
+3. In Stripe, configure webhook endpoint to hit `/__gate/webhook`.
+4. If using Stripe Connect direct charges, set `connectId` (`acct_...`).
+
+## Key formats accepted
 
 - `Authorization: Bearer gate_live_...` (or `gate_test_...`)
 - `X-API-Key: gate_live_...`
-- query param: `?api_key=gate_live_...`
+- `?api_key=gate_live_...`
 
-## Configuration
+## Configuration reference
 
 ```ts
 interface GateConfig {
   credits: {
-    amount: number;   // number of API calls in a pack
-    price: number;    // cents, e.g. 500 = $5.00
-    currency?: string; // default "usd"
+    amount: number; // API calls in one credit pack
+    price: number; // cents (500 = $5.00)
+    currency?: string; // default: "usd"
   };
   stripe?: {
-    secretKey?: string; // fallback STRIPE_SECRET_KEY
-    webhookSecret?: string; // fallback STRIPE_WEBHOOK_SECRET
-    connectId?: string; // optional Stripe Connect account id
+    secretKey?: string; // fallback: STRIPE_SECRET_KEY
+    webhookSecret?: string; // fallback: STRIPE_WEBHOOK_SECRET
+    connectId?: string; // optional Stripe account id (acct_xxx)
   };
-  store?: CreditStore; // default in-memory store
-  failMode?: "open" | "closed"; // default "open"
-  baseUrl?: string; // optional override for callback URL base
-  productName?: string; // default "API Access"
+  store?: CreditStore; // default: in-memory store
+  failMode?: "open" | "closed"; // default: "open"
+  baseUrl?: string; // optional callback base URL override
+  productName?: string; // default: "API Access"
   productDescription?: string;
 }
 ```
 
 ## Environment variables
 
+- `GATE_MODE`
+  - `live` (default): Stripe verification enabled.
+  - `test`: no Stripe credentials required; checkout URLs are stubbed and success route can issue test keys directly.
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
-- `GATE_MODE`:
-  - `live` (default): Stripe keys required.
-  - `test`: Stripe keys not required, checkout URLs are stubbed (`https://gate.test/...`), and success flow can generate keys without Stripe verification.
 
-## Store behavior
+## Store contract
 
-Default store is in-memory (`MemoryStore`) and is not persistent.
+Default `MemoryStore` is not persistent and is for local/testing use.
 
-For production, pass a custom `store` implementing:
+For production, pass a custom store with atomic decrement:
 
-- `get(key)`
-- `set(key, record)`
-- `decrement(key)` (must be atomic)
-- `delete(key)`
+- `get(key): Promise<KeyRecord | null>`
+- `set(key, record): Promise<void>`
+- `decrement(key): Promise<number | null>`
+- `delete(key): Promise<void>`
 
-## Fail-open vs fail-closed
+## Stripe Connect behavior
 
-Default is `failMode: "open"`:
-
-- If Stripe/store is unavailable, requests continue (`fail_open`) instead of taking down your API.
-
-Set `failMode: "closed"` if you prefer strict blocking on billing infrastructure errors.
+If `connectId` is set, checkout sessions are created on that connected account.
+Current implementation applies a fixed 5% application fee.
