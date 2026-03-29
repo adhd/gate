@@ -12,7 +12,9 @@ const STRIPE_API_VERSION: Stripe.LatestApiVersion = "2025-02-24.acacia";
 
 function getStripe(config: ResolvedConfig): Stripe {
   const secretForClient =
-    config.mode === "test" ? config.stripe.secretKey || "sk_test_fake" : config.stripe.secretKey;
+    config.mode === "test"
+      ? config.stripe.secretKey || "sk_test_fake"
+      : config.stripe.secretKey;
   const cacheKey = `${config.mode}:${secretForClient}`;
   const cached = stripeClients.get(cacheKey);
   if (cached) return cached;
@@ -92,6 +94,12 @@ export async function handleCheckoutSuccess(
   config: ResolvedConfig,
   store: CreditStore,
 ): Promise<{ key: string; record: KeyRecord } | null> {
+  // Check idempotency first (both test and live modes)
+  const existing = await store.get(`session:${sessionId}`);
+  if (existing) {
+    return { key: existing.key, record: existing };
+  }
+
   if (config.mode === "test") {
     // In test mode, generate a key without Stripe verification
     const key = generateKey("test");
@@ -108,12 +116,6 @@ export async function handleCheckoutSuccess(
     // Also store session -> key mapping for idempotency
     await store.set(`session:${sessionId}`, { ...record, key });
     return { key, record };
-  }
-
-  // Check if key already generated for this session (idempotency)
-  const existing = await store.get(`session:${sessionId}`);
-  if (existing) {
-    return { key: existing.key, record: existing };
   }
 
   const stripe = getStripe(config);
