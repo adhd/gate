@@ -1,9 +1,12 @@
 import type { MiddlewareHandler, Hono } from "hono";
-import type { GateConfig, ResolvedConfig } from "../types.js";
+import type {
+  GateConfig,
+  GateMiddlewareOptions,
+  ResolvedConfig,
+} from "../types.js";
 import { resolveConfig } from "../config.js";
 import { handleGatedRequest } from "../core.js";
 import { extractKeyFromRequest } from "../keys.js";
-import { classifyClient } from "../detect.js";
 import {
   formatPrice,
   formatCredits,
@@ -16,9 +19,14 @@ import {
   handleWebhook,
 } from "../stripe.js";
 
-export interface GateMiddlewareOptions {
-  /** Credit cost for this route. Default: 1. */
-  cost?: number;
+function honoHeaders(c: {
+  req: { raw: { headers: Headers } };
+}): Record<string, string> {
+  const h: Record<string, string> = {};
+  c.req.raw.headers.forEach((v, k) => {
+    h[k.toLowerCase()] = v;
+  });
+  return h;
 }
 
 function createMiddleware(
@@ -26,14 +34,10 @@ function createMiddleware(
   cost: number,
 ): MiddlewareHandler {
   return async (c, next) => {
-    const headers: Record<string, string> = {};
-    c.req.raw.headers.forEach((v, k) => {
-      headers[k.toLowerCase()] = v;
-    });
-
+    const headers = honoHeaders(c);
     const ctx = {
       apiKey: extractKeyFromRequest(headers, c.req.url),
-      clientType: classifyClient(headers),
+      clientType: null,
       url: c.req.url,
       method: c.req.method,
       headers,
@@ -43,7 +47,7 @@ function createMiddleware(
 
     switch (result.action) {
       case "pass":
-        c.header("X-Gate-Credits-Remaining", String(result.keyRecord.credits));
+        c.header("X-Gate-Credits-Remaining", String(result.remaining));
         await next();
         break;
       case "fail_open":
@@ -55,7 +59,7 @@ function createMiddleware(
         c.header("X-Payment-Protocol", "gate/v1");
         return c.json(result.body, 402);
       case "error":
-        return c.json({ error: result.message }, result.status as 401 | 503);
+        return c.json({ error: result.message }, result.status);
     }
   };
 }
@@ -70,7 +74,6 @@ export function gate(
 
 export function mountGate(config: GateConfig) {
   const resolved = resolveConfig(config);
-
   const defaultMiddleware = createMiddleware(resolved, 1);
 
   return {
@@ -79,7 +82,6 @@ export function mountGate(config: GateConfig) {
       createMiddleware(resolved, options?.cost ?? 1),
     resolved,
     routes(app: Hono) {
-      // Buy: creates Stripe Checkout on demand (not per-402)
       app.get("/buy", async (c) => {
         try {
           const url = await createCheckoutSession(resolved);
@@ -93,7 +95,6 @@ export function mountGate(config: GateConfig) {
         }
       });
 
-      // Success: verify payment, issue key
       app.get("/success", async (c) => {
         const sessionId = c.req.query("session_id");
         if (!sessionId) {
@@ -125,21 +126,13 @@ export function mountGate(config: GateConfig) {
         }
       });
 
-      // Status: check balance (requires API key)
       app.get("/status", async (c) => {
-        const headers: Record<string, string> = {};
-        c.req.raw.headers.forEach((v, k) => {
-          headers[k.toLowerCase()] = v;
-        });
+        const headers = honoHeaders(c);
         const apiKey = extractKeyFromRequest(headers, c.req.url);
-        if (!apiKey) {
-          return c.json({ error: "API key required" }, 401);
-        }
+        if (!apiKey) return c.json({ error: "API key required" }, 401);
 
         const record = await resolved.store.get(apiKey);
-        if (!record) {
-          return c.json({ error: "Invalid API key" }, 401);
-        }
+        if (!record) return c.json({ error: "Invalid API key" }, 401);
 
         return c.json({
           credits_remaining: record.credits,
@@ -148,7 +141,6 @@ export function mountGate(config: GateConfig) {
         });
       });
 
-      // Pricing (no auth needed)
       app.get("/pricing", (c) => {
         const { price, currency, amount } = resolved.credits;
         return c.json({
@@ -159,7 +151,6 @@ export function mountGate(config: GateConfig) {
         });
       });
 
-      // Webhook
       app.post("/webhook", async (c) => {
         const body = await c.req.text();
         const signature = c.req.header("stripe-signature");

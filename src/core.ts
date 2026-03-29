@@ -14,28 +14,15 @@ export async function handleGatedRequest(
 ): Promise<GateResult> {
   const { store, failMode } = config;
   const cost = options?.cost ?? 1;
-
-  // 1. Extract API key
   const apiKey = ctx.apiKey ?? extractKeyFromRequest(ctx.headers, ctx.url);
 
-  // 2. If key present, attempt atomic decrement (no separate get)
   if (apiKey) {
     try {
       const result = await store.decrement(apiKey, cost);
 
       switch (result.status) {
         case "ok":
-          return {
-            action: "pass",
-            keyRecord: {
-              key: apiKey,
-              credits: result.remaining,
-              stripeCustomerId: null,
-              stripeSessionId: "",
-              createdAt: "",
-              lastUsedAt: null,
-            },
-          };
+          return { action: "pass", key: apiKey, remaining: result.remaining };
         case "not_found":
           return { action: "error", status: 401, message: "Invalid API key" };
         case "exhausted": {
@@ -47,7 +34,8 @@ export async function handleGatedRequest(
           };
         }
       }
-    } catch {
+    } catch (err) {
+      console.error("[gate] Store error:", err);
       if (failMode === "open") return { action: "fail_open" };
       return {
         action: "error",
@@ -57,7 +45,6 @@ export async function handleGatedRequest(
     }
   }
 
-  // 3. No key: respond based on client type
   const purchaseUrl = buildPurchaseUrl(config, ctx);
   const clientType = ctx.clientType ?? classifyClient(ctx.headers);
 
@@ -72,13 +59,12 @@ export async function handleGatedRequest(
   };
 }
 
-/** Build a stable purchase URL (no Stripe session created here). */
 function buildPurchaseUrl(
   config: ResolvedConfig,
   ctx: GateRequestContext,
 ): string {
   if (config.mode === "test") {
-    return `https://gate.test/buy`;
+    return "https://gate.test/buy";
   }
   const base =
     config.baseUrl ??

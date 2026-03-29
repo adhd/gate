@@ -32,5 +32,6 @@ export type {
   GateResponse402,
   GateRequestContext,
   GateResult,
+  GateMiddlewareOptions,
 } from "./types.js";
 export type { RedisLikeClient, RedisStoreOptions } from "./store/redis.js";

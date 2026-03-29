@@ -1,10 +1,13 @@
 import type { Request, Response, NextFunction, Router } from "express";
 import { createRequire } from "node:module";
-import type { GateConfig, ResolvedConfig } from "../types.js";
+import type {
+  GateConfig,
+  GateMiddlewareOptions,
+  ResolvedConfig,
+} from "../types.js";
 import { resolveConfig } from "../config.js";
 import { handleGatedRequest } from "../core.js";
 import { extractKeyFromRequest } from "../keys.js";
-import { classifyClient } from "../detect.js";
 import {
   formatPrice,
   formatCredits,
@@ -17,24 +20,25 @@ import {
   handleWebhook,
 } from "../stripe.js";
 
-const require = createRequire(import.meta.url);
+function expressHeaders(req: Request): Record<string, string> {
+  const h: Record<string, string> = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (typeof v === "string") h[k.toLowerCase()] = v;
+  }
+  return h;
+}
 
-export interface GateMiddlewareOptions {
-  cost?: number;
+function expressUrl(req: Request): string {
+  return `${req.protocol}://${req.get("host")}${req.originalUrl}`;
 }
 
 function createMiddleware(resolved: ResolvedConfig, cost: number) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(req.headers)) {
-      if (typeof v === "string") headers[k.toLowerCase()] = v;
-    }
-
-    const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+    const headers = expressHeaders(req);
     const ctx = {
-      apiKey: extractKeyFromRequest(headers, url),
-      clientType: classifyClient(headers),
-      url,
+      apiKey: extractKeyFromRequest(headers, expressUrl(req)),
+      clientType: null,
+      url: expressUrl(req),
       method: req.method,
       headers,
     };
@@ -43,11 +47,7 @@ function createMiddleware(resolved: ResolvedConfig, cost: number) {
 
     switch (result.action) {
       case "pass":
-        res.setHeader(
-          "X-Gate-Credits-Remaining",
-          String(result.keyRecord.credits),
-        );
-        (req as any).gate = result;
+        res.setHeader("X-Gate-Credits-Remaining", String(result.remaining));
         next();
         break;
       case "fail_open":
@@ -82,6 +82,7 @@ export function mountGate(config: GateConfig) {
       createMiddleware(resolved, options?.cost ?? 1),
     resolved,
     routes(): Router {
+      const require = createRequire(import.meta.url);
       const express = require("express");
       const router = express.Router();
 
@@ -99,7 +100,10 @@ export function mountGate(config: GateConfig) {
       });
 
       router.get("/success", async (req: Request, res: Response) => {
-        const sessionId = req.query.session_id as string;
+        const sessionId =
+          typeof req.query.session_id === "string"
+            ? req.query.session_id
+            : undefined;
         if (!sessionId) {
           return res.status(400).json({ error: "Missing session_id" });
         }
@@ -130,12 +134,8 @@ export function mountGate(config: GateConfig) {
       });
 
       router.get("/status", async (req: Request, res: Response) => {
-        const headers: Record<string, string> = {};
-        for (const [k, v] of Object.entries(req.headers)) {
-          if (typeof v === "string") headers[k.toLowerCase()] = v;
-        }
-        const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-        const apiKey = extractKeyFromRequest(headers, url);
+        const headers = expressHeaders(req);
+        const apiKey = extractKeyFromRequest(headers, expressUrl(req));
         if (!apiKey) {
           return res.status(401).json({ error: "API key required" });
         }
@@ -166,7 +166,8 @@ export function mountGate(config: GateConfig) {
         "/webhook",
         express.raw({ type: "application/json" }),
         async (req: Request, res: Response) => {
-          const signature = req.headers["stripe-signature"] as string;
+          const sig = req.headers["stripe-signature"];
+          const signature = typeof sig === "string" ? sig : undefined;
           if (!signature) {
             return res
               .status(400)

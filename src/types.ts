@@ -98,9 +98,14 @@ export interface GateResponse402 {
   };
 }
 
+export interface GateMiddlewareOptions {
+  /** Credit cost for this route. Default: 1. */
+  cost?: number;
+}
+
 export interface GateRequestContext {
   apiKey: string | null;
-  clientType: ClientType;
+  clientType: ClientType | null;
   url: string;
   method: string;
   headers: Record<string, string>;
@@ -109,8 +114,8 @@ export interface GateRequestContext {
 // --- Core result ---
 
 export type GateResult =
-  | { action: "pass"; keyRecord: KeyRecord }
+  | { action: "pass"; key: string; remaining: number }
   | { action: "fail_open" }
   | { action: "redirect"; url: string }
   | { action: "payment_required"; body: GateResponse402; status: 402 }
-  | { action: "error"; status: number; message: string };
+  | { action: "error"; status: 401 | 503; message: string };

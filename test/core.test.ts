@@ -58,7 +58,7 @@ describe("gate core flow", () => {
 
     expect(result.action).toBe("pass");
     if (result.action !== "pass") return;
-    expect(result.keyRecord.credits).toBe(4);
+    expect(result.remaining).toBe(4);
   });
 
   it("returns 401 for invalid key", async () => {
@@ -136,7 +136,7 @@ describe("gate core flow", () => {
 
     expect(result.action).toBe("pass");
     if (result.action !== "pass") return;
-    expect(result.keyRecord.credits).toBe(5);
+    expect(result.remaining).toBe(5);
   });
 
   it("returns redirect for browser client without key", async () => {
@@ -172,7 +172,7 @@ describe("gate core flow", () => {
 
     expect(result.action).toBe("pass");
     if (result.action !== "pass") return;
-    expect(result.keyRecord.credits).toBe(4);
+    expect(result.remaining).toBe(4);
   });
 
   it("extracts key from X-API-Key header when apiKey is null", async () => {
@@ -186,7 +186,7 @@ describe("gate core flow", () => {
 
     expect(result.action).toBe("pass");
     if (result.action !== "pass") return;
-    expect(result.keyRecord.credits).toBe(2);
+    expect(result.remaining).toBe(2);
   });
 
   it("extracts key from query param when apiKey is null", async () => {
@@ -209,7 +209,7 @@ describe("gate core flow", () => {
 
     expect(result.action).toBe("pass");
     if (result.action !== "pass") return;
-    expect(result.keyRecord.credits).toBe(2);
+    expect(result.remaining).toBe(2);
   });
 
   it("classifies client from headers when clientType not provided explicitly", async () => {
