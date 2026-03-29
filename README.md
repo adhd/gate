@@ -8,7 +8,7 @@ You don't build any of this. You add middleware and set a price.
 
 ```ts
 import { Hono } from "hono";
-import { mountGate } from "gate/hono";
+import { mountGate } from "gatepay/hono";
 
 const app = new Hono();
 const billing = mountGate({
@@ -26,7 +26,7 @@ app.route("/__gate", gateRoutes);
 ## Install
 
 ```bash
-npm install gate hono
+npm install gatepay hono
 ```
 
 (Or `express` instead of `hono`. Stripe is bundled as a dependency of gate.)
@@ -66,7 +66,7 @@ curl http://localhost:3000/api/data -H "Authorization: Bearer gate_test_..."
 
 ```ts
 import express from "express";
-import { mountGate } from "gate/express";
+import { mountGate } from "gatepay/express";
 
 const app = express();
 const billing = mountGate({
@@ -127,7 +127,7 @@ For production, use `RedisStore`:
 
 ```ts
 import { createClient } from "redis";
-import { RedisStore } from "gate/store";
+import { RedisStore } from "gatepay/store";
 
 const redis = createClient({ url: process.env.REDIS_URL });
 await redis.connect();

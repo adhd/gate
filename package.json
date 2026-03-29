@@ -1,5 +1,5 @@
 {
-  "name": "gate",
+  "name": "gatepay",
   "version": "0.1.0",
   "description": "Add pay-per-call billing to any API with 3 lines of code",
   "type": "module",
