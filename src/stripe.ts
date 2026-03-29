@@ -2,18 +2,21 @@ import Stripe from "stripe";
 import type { ResolvedConfig, KeyRecord, CreditStore } from "./types.js";
 import { generateKey } from "./keys.js";
 
-let stripeClient: Stripe | null = null;
-const STRIPE_API_VERSION = "2025-12-18.acacia" as Stripe.LatestApiVersion;
+const stripeClients = new Map<string, Stripe>();
+const STRIPE_API_VERSION = "2025-02-24.acacia" as Stripe.LatestApiVersion;
 
 function getStripe(config: ResolvedConfig): Stripe {
-  if (!stripeClient) {
-    const key =
-      config.mode === "test"
-        ? config.stripe.secretKey || "sk_test_fake"
-        : config.stripe.secretKey;
-    stripeClient = new Stripe(key, { apiVersion: STRIPE_API_VERSION });
+  const secretKey =
+    config.mode === "test"
+      ? config.stripe.secretKey || "sk_test_fake"
+      : config.stripe.secretKey;
+
+  let client = stripeClients.get(secretKey);
+  if (!client) {
+    client = new Stripe(secretKey, { apiVersion: STRIPE_API_VERSION });
+    stripeClients.set(secretKey, client);
   }
-  return stripeClient;
+  return client;
 }
 
 /** Create a Stripe Checkout session and return the URL. Called from the /buy endpoint, not per-request. */

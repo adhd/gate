@@ -108,7 +108,7 @@ describe("end-to-end flow in test mode", () => {
     expect(key1).toBe(key2);
   });
 
-  it("key retrieval endpoint works", async () => {
+  it("key retrieval endpoint is removed (security fix)", async () => {
     const app = new Hono();
     const billing = mountGate({ credits: { amount: 10, price: 500 } });
 
@@ -117,19 +117,15 @@ describe("end-to-end flow in test mode", () => {
     app.route("/__gate", gateRoutes);
 
     // Issue a key
-    const successRes = await app.request(
+    await app.request(
       "http://localhost/__gate/success?session_id=cs_test_retrieve",
       { headers: { accept: "application/json" } },
     );
-    const originalKey = (await successRes.json()).api_key;
 
-    // Retrieve it
+    // Verify /key endpoint no longer exists
     const keyRes = await app.request(
       "http://localhost/__gate/key?session_id=cs_test_retrieve",
     );
-    const keyBody = await keyRes.json();
-
-    expect(keyRes.status).toBe(200);
-    expect(keyBody.api_key).toBe(originalKey);
+    expect(keyRes.status).toBe(404);
   });
 });

@@ -1,13 +1,40 @@
 import type { GateResponse402, ResolvedConfig } from "./types.js";
 
-function formatPrice(cents: number, currency: string): string {
+export function formatPrice(cents: number, currency: string): string {
   const amount = (cents / 100).toFixed(2);
   if (currency === "usd") return `$${amount}`;
   return `${amount} ${currency.toUpperCase()}`;
 }
 
-function formatCredits(n: number): string {
+export function escapeHtml(str: string | number): string {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+export function formatCredits(n: number): string {
   return n.toLocaleString("en-US");
+}
+
+export function successPageHtml(apiKey: string, credits: number): string {
+  return `<!DOCTYPE html>
+<html><head><title>API Key Created</title>
+<style>body{font-family:system-ui;max-width:480px;margin:80px auto;padding:0 20px}
+code{background:#f0f0f0;padding:4px 8px;border-radius:4px;font-size:14px;display:block;margin:12px 0;word-break:break-all}</style>
+</head><body>
+<h1>Your API Key</h1>
+<p>Use this key to authenticate your API requests:</p>
+<code>${escapeHtml(apiKey)}</code>
+<p>You have <strong>${escapeHtml(credits)}</strong> credits remaining.</p>
+<p>Include it as: <code>Authorization: Bearer ${escapeHtml(apiKey)}</code></p>
+</body></html>`;
+}
+
+export function webhookErrorStatus(err: unknown): 400 | 500 {
+  return err instanceof Error && err.message.includes("signature") ? 400 : 500;
 }
 
 function maskKey(key: string): string {

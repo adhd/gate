@@ -26,19 +26,19 @@ app.route("/__gate", gateRoutes);
 ## Install
 
 ```bash
-npm install gate stripe hono
+npm install gate hono
 ```
 
-(Or `express` instead of `hono`.)
+(Or `express` instead of `hono`. Stripe is bundled as a dependency of gate.)
 
 ## How it works
 
 For any gated route:
 
-1. Valid key with credits: request passes, 1 credit deducted.
-2. No key, browser client: 302 redirect to Stripe Checkout.
-3. No key, API/agent client: 402 JSON with `checkout_url` and pricing.
-4. Key with zero credits: 402 JSON with a refill `checkout_url`.
+1. Valid key with credits: request passes, credits deducted (1 by default, configurable per route via `cost`).
+2. No key, browser client: 302 redirect to `/__gate/buy`.
+3. No key, API/agent client: 402 JSON with `purchase_url` and pricing.
+4. Key with zero credits: 402 JSON with a refill `purchase_url`.
 
 If the store is unreachable, gate fails open by default (lets requests through). Configurable to fail closed.
 
@@ -83,29 +83,33 @@ app.get("/api/data", (_req, res) => res.json({ ok: true }));
 app.listen(3000);
 ```
 
-## Required routes
+## Routes
 
-`mountGate` sets up two handlers you need to expose:
+`mountGate` registers five handlers under the route prefix (default `/__gate`):
 
-- `GET /__gate/success?session_id=...` (key issuance after checkout)
-- `POST /__gate/webhook` (Stripe signature verification, backup key issuance)
+| Endpoint          | Method | Auth | Description                                                                                          |
+| ----------------- | ------ | ---- | ---------------------------------------------------------------------------------------------------- |
+| `/__gate/buy`     | GET    | No   | Creates a Stripe Checkout session. Browsers get a 302 redirect; JSON clients get `{ checkout_url }`. |
+| `/__gate/success` | GET    | No   | Verifies payment and issues an API key. Requires `?session_id=...`.                                  |
+| `/__gate/status`  | GET    | Yes  | Returns `{ credits_remaining, created_at, last_used_at }` for the authenticated key.                 |
+| `/__gate/pricing` | GET    | No   | Returns `{ credits, price, currency, formatted }`. No auth needed.                                   |
+| `/__gate/webhook` | POST   | No   | Stripe webhook endpoint. Verifies signature, issues key as backup to `/success`.                     |
+
+## Variable cost
+
+The default middleware deducts 1 credit per call. For routes that cost more, use `billing.gate()`:
+
+```ts
+// Hono
+app.use("/api/expensive/*", billing.gate({ cost: 10 }));
+```
 
 ## Going live
 
 1. Set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` env vars (or pass them in config).
-2. In Stripe, point a webhook at your `/__gate/webhook` URL.
-3. Remove `GATE_MODE=test`.
-
-If you're using Stripe Connect (money goes to a connected account with a 5% application fee), also set `connectId`:
-
-```ts
-mountGate({
-  credits: { amount: 1000, price: 500 },
-  stripe: {
-    connectId: "acct_...",
-  },
-});
-```
+2. Set `baseUrl` in config to your public URL (e.g. `https://api.example.com`). Required in live mode.
+3. In Stripe, point a webhook at your `/__gate/webhook` URL.
+4. Remove `GATE_MODE=test`.
 
 ## Key formats
 
@@ -137,10 +141,15 @@ mountGate({
 Or implement the `CreditStore` interface with whatever you want (D1, KV, Supabase, Postgres):
 
 ```ts
+type DecrementResult =
+  | { status: "ok"; remaining: number }
+  | { status: "not_found" }
+  | { status: "exhausted" };
+
 interface CreditStore {
   get(key: string): Promise<KeyRecord | null>;
   set(key: string, record: KeyRecord): Promise<void>;
-  decrement(key: string): Promise<number | null>;
+  decrement(key: string, amount?: number): Promise<DecrementResult>;
   delete(key: string): Promise<void>;
 }
 ```
@@ -157,11 +166,11 @@ interface GateConfig {
   stripe?: {
     secretKey?: string; // or STRIPE_SECRET_KEY env
     webhookSecret?: string; // or STRIPE_WEBHOOK_SECRET env
-    connectId?: string; // Stripe Connect account (acct_...)
   };
   store?: CreditStore; // default: in-memory
   failMode?: "open" | "closed"; // default: "open"
-  baseUrl?: string; // for checkout callback URLs
+  baseUrl?: string; // required in live mode, used for checkout callback URLs
+  routePrefix?: string; // default: "/__gate"
   productName?: string; // default: "API Access"
   productDescription?: string;
 }

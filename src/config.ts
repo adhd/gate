@@ -7,6 +7,16 @@ export function resolveConfig(input: GateConfig): ResolvedConfig {
     process.env.GATE_MODE === "test" ? "test" : "live"
   ) as ResolvedConfig["mode"];
 
+  if (
+    mode === "test" &&
+    process.env.NODE_ENV === "production" &&
+    process.env.GATE_ALLOW_TEST_IN_PRODUCTION !== "true"
+  ) {
+    throw new GateConfigError(
+      "GATE_MODE=test cannot be used when NODE_ENV=production. Remove GATE_MODE or set GATE_ALLOW_TEST_IN_PRODUCTION=true to override.",
+    );
+  }
+
   // Validate credits
   if (
     !input.credits ||

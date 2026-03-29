@@ -42,6 +42,9 @@ export function extractKeyFromRequest(
     const parsed = new URL(url, "http://localhost");
     const param = parsed.searchParams.get("api_key");
     if (param && /^gate_(?:live|test)_[a-f0-9]{32}$/.test(param)) {
+      console.warn(
+        "[gate] API key passed in query parameter. This is insecure. Use Authorization: Bearer or X-API-Key header instead.",
+      );
       return param;
     }
   } catch {

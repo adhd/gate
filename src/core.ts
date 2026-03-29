@@ -24,21 +24,18 @@ export async function handleGatedRequest(
       const result = await store.decrement(apiKey, cost);
 
       switch (result.status) {
-        case "ok": {
-          // Get the full record for the response (non-critical read)
-          const record = await store.get(apiKey);
+        case "ok":
           return {
             action: "pass",
-            keyRecord: record ?? {
+            keyRecord: {
               key: apiKey,
               credits: result.remaining,
               stripeCustomerId: null,
               stripeSessionId: "",
               createdAt: "",
-              lastUsedAt: new Date().toISOString(),
+              lastUsedAt: null,
             },
           };
-        }
         case "not_found":
           return { action: "error", status: 401, message: "Invalid API key" };
         case "exhausted": {

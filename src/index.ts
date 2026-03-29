@@ -5,6 +5,11 @@ export {
   paymentRequired,
   creditsExhausted,
   GateConfigError,
+  formatPrice,
+  formatCredits,
+  escapeHtml,
+  successPageHtml,
+  webhookErrorStatus,
 } from "./errors.js";
 export { generateKey, parseKey, extractKeyFromRequest } from "./keys.js";
 export {

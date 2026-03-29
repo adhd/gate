@@ -5,6 +5,12 @@ import { handleGatedRequest } from "../core.js";
 import { extractKeyFromRequest } from "../keys.js";
 import { classifyClient } from "../detect.js";
 import {
+  formatPrice,
+  formatCredits,
+  successPageHtml,
+  webhookErrorStatus,
+} from "../errors.js";
+import {
   createCheckoutSession,
   handleCheckoutSuccess,
   handleWebhook,
@@ -113,35 +119,10 @@ export function mountGate(config: GateConfig) {
             });
           }
 
-          return c.html(`<!DOCTYPE html>
-<html><head><title>API Key Created</title>
-<style>body{font-family:system-ui;max-width:480px;margin:80px auto;padding:0 20px}
-code{background:#f0f0f0;padding:4px 8px;border-radius:4px;font-size:14px;display:block;margin:12px 0;word-break:break-all}</style>
-</head><body>
-<h1>Your API Key</h1>
-<p>Use this key to authenticate your API requests:</p>
-<code>${result.key}</code>
-<p>You have <strong>${result.record.credits}</strong> credits remaining.</p>
-<p>Include it as: <code>Authorization: Bearer ${result.key}</code></p>
-</body></html>`);
+          return c.html(successPageHtml(result.key, result.record.credits));
         } catch {
           return c.json({ error: "Payment verification failed" }, 400);
         }
-      });
-
-      // Key retrieval by session ID
-      app.get("/key", async (c) => {
-        const sessionId = c.req.query("session_id");
-        if (!sessionId) {
-          return c.json({ error: "Missing session_id" }, 400);
-        }
-
-        const record = await resolved.store.get(`session:${sessionId}`);
-        if (!record) {
-          return c.json({ error: "No key found for this session" }, 404);
-        }
-
-        return c.json({ api_key: record.key, credits: record.credits });
       });
 
       // Status: check balance (requires API key)
@@ -169,13 +150,12 @@ code{background:#f0f0f0;padding:4px 8px;border-radius:4px;font-size:14px;display
 
       // Pricing (no auth needed)
       app.get("/pricing", (c) => {
-        const price = resolved.credits.price;
-        const currency = resolved.credits.currency;
+        const { price, currency, amount } = resolved.credits;
         return c.json({
-          credits: resolved.credits.amount,
+          credits: amount,
           price,
           currency,
-          formatted: `$${(price / 100).toFixed(2)} for ${resolved.credits.amount.toLocaleString("en-US")} API calls`,
+          formatted: `${formatPrice(price, currency)} for ${formatCredits(amount)} API calls`,
         });
       });
 
@@ -190,8 +170,9 @@ code{background:#f0f0f0;padding:4px 8px;border-radius:4px;font-size:14px;display
         try {
           await handleWebhook(body, signature, resolved, resolved.store);
           return c.json({ received: true });
-        } catch {
-          return c.json({ error: "Webhook verification failed" }, 400);
+        } catch (err) {
+          const status = webhookErrorStatus(err);
+          return c.json({ error: "Webhook processing failed" }, status);
         }
       });
     },

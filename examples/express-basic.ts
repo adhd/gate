@@ -19,7 +19,6 @@ const billing = mountGate({
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
-    connectId: process.env.STRIPE_CONNECT_ACCOUNT_ID,
   },
 });
 

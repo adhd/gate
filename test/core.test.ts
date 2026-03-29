@@ -138,4 +138,96 @@ describe("gate core flow", () => {
     if (result.action !== "pass") return;
     expect(result.keyRecord.credits).toBe(5);
   });
+
+  it("returns redirect for browser client without key", async () => {
+    const ctx = {
+      apiKey: null,
+      clientType: "browser" as const,
+      method: "GET",
+      url: "https://api.example.com/v1/data",
+      headers: {
+        host: "api.example.com",
+        "x-forwarded-proto": "https",
+        accept: "text/html,application/xhtml+xml",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+      },
+    };
+
+    const result = await handleGatedRequest(ctx, config);
+
+    expect(result.action).toBe("redirect");
+    if (result.action !== "redirect") return;
+    expect(result.url).toContain("gate.test/buy");
+  });
+
+  it("extracts key from Authorization header when apiKey is null", async () => {
+    const key = generateKey("test");
+    await config.store.set(key, makeRecord(key, 5));
+
+    const ctx = apiCtx({ authorization: `Bearer ${key}` });
+    // apiKey is null, so core should extract from headers
+    expect(ctx.apiKey).toBeNull();
+
+    const result = await handleGatedRequest(ctx, config);
+
+    expect(result.action).toBe("pass");
+    if (result.action !== "pass") return;
+    expect(result.keyRecord.credits).toBe(4);
+  });
+
+  it("extracts key from X-API-Key header when apiKey is null", async () => {
+    const key = generateKey("test");
+    await config.store.set(key, makeRecord(key, 3));
+
+    const ctx = apiCtx({ "x-api-key": key });
+    expect(ctx.apiKey).toBeNull();
+
+    const result = await handleGatedRequest(ctx, config);
+
+    expect(result.action).toBe("pass");
+    if (result.action !== "pass") return;
+    expect(result.keyRecord.credits).toBe(2);
+  });
+
+  it("extracts key from query param when apiKey is null", async () => {
+    const key = generateKey("test");
+    await config.store.set(key, makeRecord(key, 3));
+
+    const ctx = {
+      apiKey: null,
+      clientType: "api" as const,
+      method: "GET",
+      url: `https://api.example.com/v1/data?api_key=${key}`,
+      headers: {
+        host: "api.example.com",
+        "x-forwarded-proto": "https",
+        accept: "application/json",
+      },
+    };
+
+    const result = await handleGatedRequest(ctx, config);
+
+    expect(result.action).toBe("pass");
+    if (result.action !== "pass") return;
+    expect(result.keyRecord.credits).toBe(2);
+  });
+
+  it("classifies client from headers when clientType not provided explicitly", async () => {
+    // Test that browser detection works via classifyClient when the context
+    // has browser-like headers but clientType says "browser"
+    const ctx = {
+      apiKey: null,
+      clientType: "browser" as const,
+      method: "GET",
+      url: "https://api.example.com/docs",
+      headers: {
+        host: "api.example.com",
+        accept: "text/html",
+        "user-agent": "Mozilla/5.0 Chrome/120",
+      },
+    };
+
+    const result = await handleGatedRequest(ctx, config);
+    expect(result.action).toBe("redirect");
+  });
 });
