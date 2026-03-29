@@ -9,9 +9,7 @@ import { handleCheckoutSuccess, handleWebhook } from "../stripe.js";
 
 const require = createRequire(import.meta.url);
 
-export function gate(config: GateConfig) {
-  const resolved = resolveConfig(config);
-
+function createMiddleware(resolved: ReturnType<typeof resolveConfig>) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const headers: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.headers)) {
@@ -48,9 +46,13 @@ export function gate(config: GateConfig) {
   };
 }
 
+export function gate(config: GateConfig) {
+  return createMiddleware(resolveConfig(config));
+}
+
 export function mountGate(config: GateConfig) {
   const resolved = resolveConfig(config);
-  const middleware = gate(config);
+  const middleware = createMiddleware(resolved);
 
   return {
     middleware,

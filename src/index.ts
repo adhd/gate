@@ -6,6 +6,7 @@ export { generateKey, parseKey, extractKeyFromRequest } from "./keys.js";
 export { createCheckoutUrl, handleCheckoutSuccess, handleWebhook } from "./stripe.js";
 
 export { MemoryStore } from "./store/memory.js";
+export { RedisStore } from "./store/redis.js";
 export type {
   GateCredits,
   GateStripeConfig,
@@ -18,3 +19,4 @@ export type {
   GateRequestContext,
   GateResult,
 } from "./types.js";
+export type { RedisLikeClient, RedisStoreOptions } from "./store/redis.js";

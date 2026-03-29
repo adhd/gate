@@ -189,6 +189,21 @@ For production, pass a custom store with atomic decrement:
 - `decrement(key): Promise<number | null>`
 - `delete(key): Promise<void>`
 
+This package also includes `RedisStore` (`gate/store`):
+
+```ts
+import { createClient } from "redis";
+import { RedisStore } from "gate/store";
+
+const redis = createClient({ url: process.env.REDIS_URL });
+await redis.connect();
+
+const billing = mountGate({
+  credits: { amount: 1000, price: 500 },
+  store: new RedisStore({ client: redis, prefix: "gate:" }),
+});
+```
+
 ## Stripe Connect behavior
 
 If `connectId` is set, checkout sessions are created on that connected account.

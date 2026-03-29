@@ -7,27 +7,29 @@ import type {
 } from "./types.js";
 import { generateKey } from "./keys.js";
 
-let stripeClient: Stripe | null = null;
+const stripeClients = new Map<string, Stripe>();
 const STRIPE_API_VERSION: Stripe.LatestApiVersion = "2025-02-24.acacia";
 
 function getStripe(config: ResolvedConfig): Stripe {
-  if (config.mode === "test") {
-    // In test mode, return a stub that won't be called
-    // (createCheckoutUrl returns a fake URL in test mode)
-    if (!stripeClient) {
-      stripeClient = new Stripe(config.stripe.secretKey || "sk_test_fake", {
-        apiVersion: STRIPE_API_VERSION,
-      });
-    }
-    return stripeClient;
-  }
+  const secretForClient =
+    config.mode === "test" ? config.stripe.secretKey || "sk_test_fake" : config.stripe.secretKey;
+  const cacheKey = `${config.mode}:${secretForClient}`;
+  const cached = stripeClients.get(cacheKey);
+  if (cached) return cached;
 
-  if (!stripeClient) {
-    stripeClient = new Stripe(config.stripe.secretKey, {
+  if (config.mode === "test") {
+    const client = new Stripe(secretForClient, {
       apiVersion: STRIPE_API_VERSION,
     });
+    stripeClients.set(cacheKey, client);
+    return client;
   }
-  return stripeClient;
+
+  const client = new Stripe(secretForClient, {
+    apiVersion: STRIPE_API_VERSION,
+  });
+  stripeClients.set(cacheKey, client);
+  return client;
 }
 
 export async function createCheckoutUrl(

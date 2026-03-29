@@ -6,9 +6,7 @@ import { extractKeyFromRequest } from "../keys.js";
 import { classifyClient } from "../detect.js";
 import { handleCheckoutSuccess, handleWebhook } from "../stripe.js";
 
-export function gate(config: GateConfig): MiddlewareHandler {
-  const resolved = resolveConfig(config);
-
+function createMiddleware(resolved: ResolvedConfig): MiddlewareHandler {
   return async (c, next) => {
     const headers: Record<string, string> = {};
     c.req.raw.headers.forEach((v, k) => {
@@ -41,9 +39,13 @@ export function gate(config: GateConfig): MiddlewareHandler {
   };
 }
 
+export function gate(config: GateConfig): MiddlewareHandler {
+  return createMiddleware(resolveConfig(config));
+}
+
 export function mountGate(config: GateConfig) {
   const resolved = resolveConfig(config);
-  const middleware = gate(config);
+  const middleware = createMiddleware(resolved);
 
   return {
     middleware,
