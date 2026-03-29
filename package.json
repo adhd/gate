@@ -41,6 +41,15 @@
     "monetize"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/adhd/gate.git"
+  },
+  "homepage": "https://github.com/adhd/gate#readme",
+  "bugs": {
+    "url": "https://github.com/adhd/gate/issues"
+  },
+  "author": "David Wang",
   "dependencies": {
     "stripe": "^17.0.0"
   },
