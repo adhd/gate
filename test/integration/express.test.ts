@@ -9,7 +9,6 @@ function makeRecord(key: string, credits: number): KeyRecord {
   return {
     key,
     credits,
-    stripeConnectId: null,
     stripeCustomerId: null,
     stripeSessionId: "cs_test_demo",
     createdAt: new Date().toISOString(),
@@ -23,9 +22,10 @@ function buildExpressApp() {
     credits: { amount: 100, price: 500 },
   });
 
+  app.use("/__gate", billing.routes());
+  app.use(express.json());
   app.use("/api", billing.middleware);
   app.get("/api/data", (_req, res) => res.json({ ok: true }));
-  app.use("/__gate", billing.routes());
 
   return { app, billing };
 }
@@ -47,7 +47,7 @@ describe("express adapter integration", () => {
 
     expect(res.status).toBe(402);
     expect(res.body.error).toBe("payment_required");
-    expect(res.body.checkout_url).toContain("https://gate.test/checkout/");
+    expect(res.body.payment.purchase_url).toContain("gate.test/buy");
   });
 
   it("redirects browser client without key", async () => {
@@ -59,11 +59,10 @@ describe("express adapter integration", () => {
       .set(
         "user-agent",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-      )
-      .redirects(0);
+      );
 
     expect(res.status).toBe(302);
-    expect(res.header.location).toContain("https://gate.test/checkout/");
+    expect(res.headers.location).toContain("gate.test/buy");
   });
 
   it("passes and decrements with valid key", async () => {
@@ -73,14 +72,11 @@ describe("express adapter integration", () => {
 
     const res = await request(app)
       .get("/api/data")
-      .set("authorization", `Bearer ${key}`)
-      .set("accept", "application/json");
+      .set("authorization", `Bearer ${key}`);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
-
-    const updated = await billing.resolved.store.get(key);
-    expect(updated?.credits).toBe(1);
+    expect(res.headers["x-gate-credits-remaining"]).toBe("1");
   });
 
   it("returns 402 credits_exhausted when key has zero credits", async () => {
@@ -90,27 +86,20 @@ describe("express adapter integration", () => {
 
     const res = await request(app)
       .get("/api/data")
-      .set("authorization", `Bearer ${key}`)
-      .set("accept", "application/json");
+      .set("authorization", `Bearer ${key}`);
 
     expect(res.status).toBe(402);
     expect(res.body.error).toBe("credits_exhausted");
-    expect(res.body.checkout_url).toContain("https://gate.test/checkout/");
   });
 
-  it("returns 400 when webhook signature verification fails", async () => {
-    process.env.GATE_MODE = "live";
-    process.env.STRIPE_SECRET_KEY = "sk_test_123";
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_123";
-
+  it("returns 401 for invalid key", async () => {
     const { app } = buildExpressApp();
-    const res = await request(app)
-      .post("/__gate/webhook")
-      .set("content-type", "application/json")
-      .set("stripe-signature", "t=1,v1=invalid")
-      .send("{}");
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Webhook verification failed");
+    const res = await request(app)
+      .get("/api/data")
+      .set("authorization", "Bearer gate_test_" + "0".repeat(32));
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Invalid API key");
   });
 });

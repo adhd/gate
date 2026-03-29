@@ -1,17 +1,19 @@
-import type { CreditStore, KeyRecord } from "../types.js";
+import type { CreditStore, KeyRecord, DecrementResult } from "../types.js";
 
+// Returns: positive number (remaining credits), -1 (not found), -2 (exhausted)
 const DECREMENT_SCRIPT = `
 local exists = redis.call("EXISTS", KEYS[1])
 if exists == 0 then
-  return nil
+  return -1
 end
 
-local credits = tonumber(redis.call("HGET", KEYS[1], "credits") or "-1")
-if credits <= 0 then
-  return nil
+local credits = tonumber(redis.call("HGET", KEYS[1], "credits") or "0")
+local cost = tonumber(ARGV[2]) or 1
+if credits < cost then
+  return -2
 end
 
-credits = credits - 1
+credits = credits - cost
 redis.call("HSET", KEYS[1], "credits", tostring(credits), "lastUsedAt", ARGV[1])
 return credits
 `;
@@ -36,7 +38,6 @@ function serializeRecord(record: KeyRecord): Record<string, string> {
   return {
     key: record.key,
     credits: String(record.credits),
-    stripeConnectId: record.stripeConnectId ?? "",
     stripeCustomerId: record.stripeCustomerId ?? "",
     stripeSessionId: record.stripeSessionId,
     createdAt: record.createdAt,
@@ -53,7 +54,6 @@ function deserializeRecord(hash: Record<string, string>): KeyRecord | null {
   return {
     key: hash.key,
     credits,
-    stripeConnectId: hash.stripeConnectId || null,
     stripeCustomerId: hash.stripeCustomerId || null,
     stripeSessionId: hash.stripeSessionId || "",
     createdAt: hash.createdAt || new Date(0).toISOString(),
@@ -84,17 +84,21 @@ export class RedisStore implements CreditStore {
     await this.client.hSet(this.redisKey(key), serializeRecord(record));
   }
 
-  async decrement(key: string): Promise<number | null> {
+  async decrement(key: string, amount = 1): Promise<DecrementResult> {
     const result = await this.client.eval(DECREMENT_SCRIPT, {
       keys: [this.redisKey(key)],
-      arguments: [new Date().toISOString()],
+      arguments: [new Date().toISOString(), String(amount)],
     });
 
-    if (result === null) return null;
-    if (typeof result === "number") return result;
+    if (result === -1) return { status: "not_found" };
+    if (result === -2) return { status: "exhausted" };
+    if (result === null) return { status: "not_found" };
 
-    const parsed = Number.parseInt(result, 10);
-    return Number.isFinite(parsed) ? parsed : null;
+    const remaining =
+      typeof result === "number" ? result : Number.parseInt(result, 10);
+    if (!Number.isFinite(remaining)) return { status: "not_found" };
+
+    return { status: "ok", remaining };
   }
 
   async delete(key: string): Promise<void> {

@@ -1,54 +1,34 @@
 import Stripe from "stripe";
-import type {
-  ResolvedConfig,
-  GateRequestContext,
-  KeyRecord,
-  CreditStore,
-} from "./types.js";
+import type { ResolvedConfig, KeyRecord, CreditStore } from "./types.js";
 import { generateKey } from "./keys.js";
 
-const stripeClients = new Map<string, Stripe>();
-const STRIPE_API_VERSION: Stripe.LatestApiVersion = "2025-02-24.acacia";
+let stripeClient: Stripe | null = null;
+const STRIPE_API_VERSION = "2025-12-18.acacia" as Stripe.LatestApiVersion;
 
 function getStripe(config: ResolvedConfig): Stripe {
-  const secretForClient =
-    config.mode === "test"
-      ? config.stripe.secretKey || "sk_test_fake"
-      : config.stripe.secretKey;
-  const cacheKey = `${config.mode}:${secretForClient}`;
-  const cached = stripeClients.get(cacheKey);
-  if (cached) return cached;
-
-  if (config.mode === "test") {
-    const client = new Stripe(secretForClient, {
-      apiVersion: STRIPE_API_VERSION,
-    });
-    stripeClients.set(cacheKey, client);
-    return client;
+  if (!stripeClient) {
+    const key =
+      config.mode === "test"
+        ? config.stripe.secretKey || "sk_test_fake"
+        : config.stripe.secretKey;
+    stripeClient = new Stripe(key, { apiVersion: STRIPE_API_VERSION });
   }
-
-  const client = new Stripe(secretForClient, {
-    apiVersion: STRIPE_API_VERSION,
-  });
-  stripeClients.set(cacheKey, client);
-  return client;
+  return stripeClient;
 }
 
-export async function createCheckoutUrl(
+/** Create a Stripe Checkout session and return the URL. Called from the /buy endpoint, not per-request. */
+export async function createCheckoutSession(
   config: ResolvedConfig,
-  ctx: GateRequestContext,
+  returnTo?: string,
 ): Promise<string> {
   if (config.mode === "test") {
     return `https://gate.test/checkout/test_session_${Date.now()}`;
   }
 
   const stripe = getStripe(config);
+  const baseUrl = config.baseUrl!; // required in live mode
 
-  const baseUrl =
-    config.baseUrl ||
-    `${ctx.headers["x-forwarded-proto"] || "https"}://${ctx.headers["host"]}`;
-
-  const sessionParams: Stripe.Checkout.SessionCreateParams = {
+  const session = await stripe.checkout.sessions.create({
     mode: "payment",
     line_items: [
       {
@@ -63,30 +43,18 @@ export async function createCheckoutUrl(
         quantity: 1,
       },
     ],
-    success_url: `${baseUrl}/__gate/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: ctx.url,
+    success_url: `${baseUrl}${config.routePrefix}/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: returnTo || baseUrl,
     metadata: {
       gate_credits: String(config.credits.amount),
-      gate_route: ctx.url,
     },
-  };
+  });
 
-  // If using Stripe Connect, create a direct charge with application fee
-  if (config.stripe.connectId) {
-    const feeAmount = Math.round(
-      config.credits.price * (config.stripe.applicationFeePercent / 100),
-    );
-    sessionParams.payment_intent_data = {
-      application_fee_amount: feeAmount,
-    };
-    const session = await stripe.checkout.sessions.create(sessionParams, {
-      stripeAccount: config.stripe.connectId,
-    });
-    return session.url!;
+  if (!session.url) {
+    throw new Error("Stripe returned a session without a URL");
   }
 
-  const session = await stripe.checkout.sessions.create(sessionParams);
-  return session.url!;
+  return session.url;
 }
 
 export async function handleCheckoutSuccess(
@@ -101,33 +69,29 @@ export async function handleCheckoutSuccess(
   }
 
   if (config.mode === "test") {
-    // In test mode, generate a key without Stripe verification
     const key = generateKey("test");
     const record: KeyRecord = {
       key,
       credits: config.credits.amount,
-      stripeConnectId: config.stripe.connectId,
       stripeCustomerId: null,
       stripeSessionId: sessionId,
       createdAt: new Date().toISOString(),
       lastUsedAt: null,
     };
-    await store.set(key, record);
-    // Also store session -> key mapping for idempotency
+    // Write session mapping first (idempotency key)
     await store.set(`session:${sessionId}`, { ...record, key });
+    await store.set(key, record);
     return { key, record };
   }
 
   const stripe = getStripe(config);
 
-  const retrieveParams = config.stripe.connectId
-    ? { stripeAccount: config.stripe.connectId }
-    : undefined;
-
-  const session = await stripe.checkout.sessions.retrieve(
-    sessionId,
-    retrieveParams,
-  );
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await stripe.checkout.sessions.retrieve(sessionId);
+  } catch {
+    return null;
+  }
 
   if (session.payment_status !== "paid") {
     return null;
@@ -140,7 +104,6 @@ export async function handleCheckoutSuccess(
   const record: KeyRecord = {
     key,
     credits,
-    stripeConnectId: config.stripe.connectId,
     stripeCustomerId:
       typeof session.customer === "string"
         ? session.customer
@@ -150,8 +113,9 @@ export async function handleCheckoutSuccess(
     lastUsedAt: null,
   };
 
-  await store.set(key, record);
+  // Write session mapping first (idempotency key), then key record
   await store.set(`session:${sessionId}`, { ...record, key });
+  await store.set(key, record);
 
   return { key, record };
 }

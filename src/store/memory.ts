@@ -1,4 +1,4 @@
-import type { CreditStore, KeyRecord } from "../types.js";
+import type { CreditStore, KeyRecord, DecrementResult } from "../types.js";
 
 export class MemoryStore implements CreditStore {
   private records = new Map<string, KeyRecord>();
@@ -11,12 +11,13 @@ export class MemoryStore implements CreditStore {
     this.records.set(key, record);
   }
 
-  async decrement(key: string): Promise<number | null> {
+  async decrement(key: string, amount = 1): Promise<DecrementResult> {
     const record = this.records.get(key);
-    if (!record || record.credits <= 0) return null;
-    record.credits -= 1;
+    if (!record) return { status: "not_found" };
+    if (record.credits < amount) return { status: "exhausted" };
+    record.credits -= amount;
     record.lastUsedAt = new Date().toISOString();
-    return record.credits;
+    return { status: "ok", remaining: record.credits };
   }
 
   async delete(key: string): Promise<void> {

@@ -3,19 +3,24 @@ import { MemoryStore } from "./store/memory.js";
 import { GateConfigError } from "./errors.js";
 
 export function resolveConfig(input: GateConfig): ResolvedConfig {
-  const mode = (process.env.GATE_MODE === "test" ? "test" : "live") as
-    | "live"
-    | "test";
+  const mode = (
+    process.env.GATE_MODE === "test" ? "test" : "live"
+  ) as ResolvedConfig["mode"];
 
   // Validate credits
   if (
     !input.credits ||
     typeof input.credits.amount !== "number" ||
+    !Number.isFinite(input.credits.amount) ||
     input.credits.amount <= 0
   ) {
     throw new GateConfigError("credits.amount must be a positive number");
   }
-  if (typeof input.credits.price !== "number" || input.credits.price <= 0) {
+  if (
+    typeof input.credits.price !== "number" ||
+    !Number.isFinite(input.credits.price) ||
+    input.credits.price <= 0
+  ) {
     throw new GateConfigError(
       "credits.price must be a positive number (in cents)",
     );
@@ -38,6 +43,22 @@ export function resolveConfig(input: GateConfig): ResolvedConfig {
     );
   }
 
+  // Require baseUrl in live mode
+  if (mode === "live" && !input.baseUrl) {
+    throw new GateConfigError(
+      "baseUrl is required in live mode. Set it to your public URL (e.g. https://api.example.com).",
+    );
+  }
+
+  const store = input.store || new MemoryStore();
+
+  // Warn about MemoryStore in live mode
+  if (mode === "live" && store instanceof MemoryStore) {
+    console.warn(
+      "[gate] Warning: using in-memory store in live mode. Keys and credits will be lost on restart. Use RedisStore or a custom store for production.",
+    );
+  }
+
   return {
     credits: {
       amount: input.credits.amount,
@@ -47,12 +68,11 @@ export function resolveConfig(input: GateConfig): ResolvedConfig {
     stripe: {
       secretKey,
       webhookSecret,
-      connectId: input.stripe?.connectId || null,
-      applicationFeePercent: 5,
     },
-    store: input.store || new MemoryStore(),
+    store,
     failMode: input.failMode || "open",
     baseUrl: input.baseUrl || null,
+    routePrefix: input.routePrefix || "/__gate",
     productName: input.productName || "API Access",
     productDescription: input.productDescription || "",
     mode,

@@ -12,7 +12,7 @@ describe("end-to-end flow in test mode", () => {
   it("full flow: 402 -> checkout success -> use key -> exhaust credits", async () => {
     const app = new Hono();
     const billing = mountGate({
-      credits: { amount: 3, price: 100 }, // 3 calls for $1
+      credits: { amount: 3, price: 100 },
     });
 
     app.use("/api/*", billing.middleware);
@@ -29,8 +29,8 @@ describe("end-to-end flow in test mode", () => {
     expect(res1.status).toBe(402);
     const body1 = await res1.json();
     expect(body1.error).toBe("payment_required");
-    expect(body1.pricing.credits).toBe(3);
-    expect(body1.pricing.price).toBe(100);
+    expect(body1.payment.pricing.credits).toBe(3);
+    expect(body1.payment.pricing.amount).toBe(100);
 
     // Step 2: Simulate checkout success (test mode skips Stripe)
     const successRes = await app.request(
@@ -53,6 +53,7 @@ describe("end-to-end flow in test mode", () => {
       });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ data: "secret" });
+      expect(res.headers.get("x-gate-credits-remaining")).toBe(String(2 - i));
     }
 
     // Step 4: Credits exhausted, get 402 again
@@ -66,7 +67,7 @@ describe("end-to-end flow in test mode", () => {
     const body4 = await res4.json();
     expect(body4.error).toBe("credits_exhausted");
 
-    // Step 5: Buy more credits
+    // Step 5: Buy more credits (new key)
     const successRes2 = await app.request(
       "http://localhost/__gate/success?session_id=cs_test_flow_456",
       { headers: { accept: "application/json" } },
@@ -84,11 +85,9 @@ describe("end-to-end flow in test mode", () => {
     expect(res6.status).toBe(200);
   });
 
-  it("success handler is idempotent (same session_id returns same key)", async () => {
+  it("success handler is idempotent", async () => {
     const app = new Hono();
-    const billing = mountGate({
-      credits: { amount: 10, price: 500 },
-    });
+    const billing = mountGate({ credits: { amount: 10, price: 500 } });
 
     const gateRoutes = new Hono();
     billing.routes(gateRoutes);
@@ -107,5 +106,30 @@ describe("end-to-end flow in test mode", () => {
     const key2 = (await res2.json()).api_key;
 
     expect(key1).toBe(key2);
+  });
+
+  it("key retrieval endpoint works", async () => {
+    const app = new Hono();
+    const billing = mountGate({ credits: { amount: 10, price: 500 } });
+
+    const gateRoutes = new Hono();
+    billing.routes(gateRoutes);
+    app.route("/__gate", gateRoutes);
+
+    // Issue a key
+    const successRes = await app.request(
+      "http://localhost/__gate/success?session_id=cs_test_retrieve",
+      { headers: { accept: "application/json" } },
+    );
+    const originalKey = (await successRes.json()).api_key;
+
+    // Retrieve it
+    const keyRes = await app.request(
+      "http://localhost/__gate/key?session_id=cs_test_retrieve",
+    );
+    const keyBody = await keyRes.json();
+
+    expect(keyRes.status).toBe(200);
+    expect(keyBody.api_key).toBe(originalKey);
   });
 });

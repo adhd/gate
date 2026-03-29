@@ -10,39 +10,61 @@ function formatCredits(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+function maskKey(key: string): string {
+  if (key.length <= 14) return key;
+  return key.slice(0, 10) + "..." + key.slice(-4);
+}
+
 export function paymentRequired(
   config: ResolvedConfig,
-  checkoutUrl: string,
+  purchaseUrl: string,
 ): GateResponse402 {
   const { credits } = config;
   return {
     error: "payment_required",
-    message: `This API requires payment. Purchase ${formatCredits(credits.amount)} API calls for ${formatPrice(credits.price, credits.currency)}.`,
-    pricing: {
-      credits: credits.amount,
-      price: credits.price,
-      currency: credits.currency,
-      formatted: `${formatPrice(credits.price, credits.currency)} for ${formatCredits(credits.amount)} API calls`,
+    message: `This endpoint requires an API key. Purchase ${formatCredits(credits.amount)} calls for ${formatPrice(credits.price, credits.currency)}.`,
+    payment: {
+      type: "checkout",
+      provider: "stripe",
+      purchase_url: purchaseUrl,
+      pricing: {
+        amount: credits.price,
+        currency: credits.currency,
+        credits: credits.amount,
+        formatted: `${formatPrice(credits.price, credits.currency)} for ${formatCredits(credits.amount)} API calls`,
+      },
     },
-    checkout_url: checkoutUrl,
   };
 }
 
 export function creditsExhausted(
   config: ResolvedConfig,
-  checkoutUrl: string,
+  purchaseUrl: string,
+  apiKey?: string,
 ): GateResponse402 {
   const { credits } = config;
   return {
     error: "credits_exhausted",
     message: `Your API key has no remaining credits. Purchase ${formatCredits(credits.amount)} more calls for ${formatPrice(credits.price, credits.currency)}.`,
-    pricing: {
-      credits: credits.amount,
-      price: credits.price,
-      currency: credits.currency,
-      formatted: `${formatPrice(credits.price, credits.currency)} for ${formatCredits(credits.amount)} API calls`,
+    payment: {
+      type: "checkout",
+      provider: "stripe",
+      purchase_url: purchaseUrl,
+      pricing: {
+        amount: credits.price,
+        currency: credits.currency,
+        credits: credits.amount,
+        formatted: `${formatPrice(credits.price, credits.currency)} for ${formatCredits(credits.amount)} API calls`,
+      },
     },
-    checkout_url: checkoutUrl,
+    ...(apiKey
+      ? {
+          key: {
+            id: maskKey(apiKey),
+            credits_remaining: 0,
+          },
+        }
+      : {}),
   };
 }
 

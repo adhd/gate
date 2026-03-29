@@ -8,7 +8,6 @@ function makeRecord(key: string, credits: number): KeyRecord {
   return {
     key,
     credits,
-    stripeConnectId: null,
     stripeCustomerId: null,
     stripeSessionId: "cs_test_demo",
     createdAt: new Date().toISOString(),
@@ -49,7 +48,8 @@ describe("hono adapter integration", () => {
 
     expect(res.status).toBe(402);
     expect(body.error).toBe("payment_required");
-    expect(body.checkout_url).toContain("https://gate.test/checkout/");
+    expect(body.payment.purchase_url).toContain("gate.test/buy");
+    expect(res.headers.get("x-payment-protocol")).toBe("gate/v1");
   });
 
   it("redirects browser client without key", async () => {
@@ -65,7 +65,7 @@ describe("hono adapter integration", () => {
     });
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toContain("https://gate.test/checkout/");
+    expect(res.headers.get("location")).toContain("gate.test/buy");
   });
 
   it("passes and decrements with valid key", async () => {
@@ -79,6 +79,7 @@ describe("hono adapter integration", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
+    expect(res.headers.get("x-gate-credits-remaining")).toBe("1");
 
     const updated = await billing.resolved.store.get(key);
     expect(updated?.credits).toBe(1);
@@ -96,26 +97,46 @@ describe("hono adapter integration", () => {
 
     expect(res.status).toBe(402);
     expect(body.error).toBe("credits_exhausted");
-    expect(body.checkout_url).toContain("https://gate.test/checkout/");
+    expect(body.payment.purchase_url).toContain("gate.test/buy");
   });
 
-  it("returns 400 when webhook signature verification fails", async () => {
-    process.env.GATE_MODE = "live";
-    process.env.STRIPE_SECRET_KEY = "sk_test_123";
-    process.env.STRIPE_WEBHOOK_SECRET = "whsec_123";
-
+  it("returns 401 for invalid key", async () => {
     const { app } = buildHonoApp();
-    const res = await app.request("http://localhost/__gate/webhook", {
-      method: "POST",
+
+    const res = await app.request("http://localhost/api/data", {
       headers: {
-        "content-type": "application/json",
-        "stripe-signature": "t=1,v1=invalid",
+        authorization: "Bearer gate_test_" + "0".repeat(32),
+        accept: "application/json",
       },
-      body: "{}",
     });
     const body = await res.json();
 
-    expect(res.status).toBe(400);
-    expect(body.error).toBe("Webhook verification failed");
+    expect(res.status).toBe(401);
+    expect(body.error).toBe("Invalid API key");
+  });
+
+  it("serves pricing endpoint", async () => {
+    const { app } = buildHonoApp();
+
+    const res = await app.request("http://localhost/__gate/pricing");
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.credits).toBe(100);
+    expect(body.price).toBe(500);
+  });
+
+  it("serves status endpoint with valid key", async () => {
+    const { app, billing } = buildHonoApp();
+    const key = generateKey("test");
+    await billing.resolved.store.set(key, makeRecord(key, 42));
+
+    const res = await app.request("http://localhost/__gate/status", {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.credits_remaining).toBe(42);
   });
 });

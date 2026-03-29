@@ -61,9 +61,22 @@ describe("resolveConfig", () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_123";
 
-    const config = resolveConfig({ credits: { amount: 100, price: 500 } });
+    const config = resolveConfig({
+      credits: { amount: 100, price: 500 },
+      baseUrl: "https://api.example.com",
+    });
     expect(config.stripe.secretKey).toBe("sk_test_123");
     expect(config.stripe.webhookSecret).toBe("whsec_123");
+  });
+
+  it("throws in live mode without baseUrl", () => {
+    process.env.GATE_MODE = "live";
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_123";
+
+    expect(() =>
+      resolveConfig({ credits: { amount: 100, price: 500 } }),
+    ).toThrow(/baseUrl is required/);
   });
 
   it("prefers config values over env vars", () => {

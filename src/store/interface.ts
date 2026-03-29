@@ -1,1 +1,1 @@
-export type { CreditStore, KeyRecord } from "../types.js";
+export type { CreditStore, KeyRecord, DecrementResult } from "../types.js";

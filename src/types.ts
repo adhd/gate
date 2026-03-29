@@ -14,8 +14,6 @@ export interface GateStripeConfig {
   secretKey?: string;
   /** Stripe webhook signing secret. Falls back to STRIPE_WEBHOOK_SECRET env var. */
   webhookSecret?: string;
-  /** Stripe Connect account ID (acct_xxx). If provided, uses direct charges with application fee. */
-  connectId?: string;
 }
 
 export interface GateConfig {
@@ -25,8 +23,10 @@ export interface GateConfig {
   store?: CreditStore;
   /** Behavior when store is unreachable. Default: 'open' */
   failMode?: "open" | "closed";
-  /** Base URL for this API. Used for checkout callback URLs. Auto-detected from request if not set. */
+  /** Base URL for this API (required in live mode). Used for checkout callback URLs. */
   baseUrl?: string;
+  /** Path prefix for gate routes. Default: '/__gate'. Must match where you mount the routes. */
+  routePrefix?: string;
   /** Name shown on Stripe Checkout page. Default: 'API Access' */
   productName?: string;
   /** Description shown on Stripe Checkout page. */
@@ -40,12 +40,11 @@ export interface ResolvedConfig {
   stripe: {
     secretKey: string;
     webhookSecret: string;
-    connectId: string | null;
-    applicationFeePercent: number;
   };
   store: CreditStore;
   failMode: "open" | "closed";
   baseUrl: string | null;
+  routePrefix: string;
   productName: string;
   productDescription: string;
   mode: "live" | "test";
@@ -56,18 +55,22 @@ export interface ResolvedConfig {
 export interface KeyRecord {
   key: string;
   credits: number;
-  stripeConnectId: string | null;
   stripeCustomerId: string | null;
   stripeSessionId: string;
   createdAt: string;
   lastUsedAt: string | null;
 }
 
+export type DecrementResult =
+  | { status: "ok"; remaining: number }
+  | { status: "not_found" }
+  | { status: "exhausted" };
+
 export interface CreditStore {
   get(key: string): Promise<KeyRecord | null>;
   set(key: string, record: KeyRecord): Promise<void>;
-  /** Atomically decrement credits. Returns new balance, or null if key doesn't exist or has 0 credits. */
-  decrement(key: string): Promise<number | null>;
+  /** Atomically decrement credits by the given amount (default 1). */
+  decrement(key: string, amount?: number): Promise<DecrementResult>;
   delete(key: string): Promise<void>;
 }
 
@@ -78,13 +81,21 @@ export type ClientType = "browser" | "api";
 export interface GateResponse402 {
   error: "payment_required" | "credits_exhausted";
   message: string;
-  pricing: {
-    credits: number;
-    price: number;
-    currency: string;
-    formatted: string;
+  payment: {
+    type: "checkout";
+    provider: "stripe";
+    purchase_url: string;
+    pricing: {
+      amount: number;
+      currency: string;
+      credits: number;
+      formatted: string;
+    };
   };
-  checkout_url: string;
+  key?: {
+    id: string;
+    credits_remaining: number;
+  };
 }
 
 export interface GateRequestContext {
