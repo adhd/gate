@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildX402PaymentRequired,
   encodePaymentRequired,
@@ -216,6 +216,10 @@ describe("extractX402Payment", () => {
 });
 
 describe("verifyX402Payment", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   const mockPayload = {
     x402Version: 2,
     accepted: {
@@ -285,8 +289,6 @@ describe("verifyX402Payment", () => {
     );
     expect(result.isValid).toBe(true);
     expect(result.payer).toBe("0xRealPayer");
-
-    vi.unstubAllGlobals();
   });
 
   it("returns invalid when facilitator returns non-OK status", async () => {
@@ -304,8 +306,6 @@ describe("verifyX402Payment", () => {
 
     expect(result.isValid).toBe(false);
     expect(result.invalidReason).toContain("400");
-
-    vi.unstubAllGlobals();
   });
 
   it("returns invalid when fetch throws (network error)", async () => {
@@ -320,12 +320,14 @@ describe("verifyX402Payment", () => {
 
     expect(result.isValid).toBe(false);
     expect(result.invalidReason).toContain("Network timeout");
-
-    vi.unstubAllGlobals();
   });
 });
 
 describe("settleX402Payment", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   const mockPayload = {
     x402Version: 2,
     accepted: {
@@ -390,8 +392,6 @@ describe("settleX402Payment", () => {
     );
     expect(result.success).toBe(true);
     expect(result.transaction).toBe("0xRealTx");
-
-    vi.unstubAllGlobals();
   });
 
   it("returns failure when facilitator returns non-OK status", async () => {
@@ -410,8 +410,6 @@ describe("settleX402Payment", () => {
     expect(result.success).toBe(false);
     expect(result.transaction).toBe("");
     expect(result.errorReason).toContain("500");
-
-    vi.unstubAllGlobals();
   });
 
   it("returns failure when fetch throws (network error)", async () => {
@@ -428,7 +426,5 @@ describe("settleX402Payment", () => {
 
     expect(result.success).toBe(false);
     expect(result.errorReason).toContain("Connection refused");
-
-    vi.unstubAllGlobals();
   });
 });

@@ -1,3 +1,9 @@
+/**
+ * Stripe tests use test-mode stubs only (no real Stripe API calls).
+ * Live Stripe paths (real checkout sessions, webhook signature verification,
+ * customer creation) require integration test infrastructure with a Stripe
+ * test-mode API key and are not covered here.
+ */
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
   createCheckoutSession,
