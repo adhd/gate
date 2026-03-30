@@ -1,11 +1,5 @@
 import type { ResolvedConfig } from "../types.js";
 
-// USDC contract addresses by CAIP-2 network
-const USDC_ADDRESSES: Record<string, string> = {
-  "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-  "eip155:84532": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-};
-
 // --- Types ---
 
 export interface X402PaymentRequired {
@@ -67,7 +61,7 @@ export function buildX402PaymentRequired(
     accepts: crypto.networks.map((network) => ({
       scheme: "exact",
       network,
-      asset: crypto.asset || USDC_ADDRESSES[network] || "",
+      asset: crypto.asset,
       amount,
       payTo: crypto.address,
       maxTimeoutSeconds: 60,
@@ -121,9 +115,9 @@ export async function verifyX402Payment(
   facilitatorUrl: string,
   paymentPayload: X402PaymentPayload,
   paymentRequirements: X402PaymentRequirements,
+  mode?: "live" | "test",
 ): Promise<X402VerifyResult> {
-  // Test mode: auto-verify
-  if (facilitatorUrl.includes("gate.test")) {
+  if (mode === "test") {
     return {
       isValid: true,
       payer: (paymentPayload.payload?.payer as string) || "0xTestPayer",
@@ -155,7 +149,14 @@ export async function verifyX402Payment(
     };
   }
 
-  return res.json() as Promise<X402VerifyResult>;
+  const body = await res.json();
+  if (typeof body?.isValid !== "boolean") {
+    return {
+      isValid: false,
+      invalidReason: "Facilitator returned invalid response",
+    };
+  }
+  return body as X402VerifyResult;
 }
 
 /**
@@ -168,9 +169,9 @@ export async function settleX402Payment(
   facilitatorUrl: string,
   paymentPayload: X402PaymentPayload,
   paymentRequirements: X402PaymentRequirements,
+  mode?: "live" | "test",
 ): Promise<X402SettleResult> {
-  // Test mode: auto-settle
-  if (facilitatorUrl.includes("gate.test")) {
+  if (mode === "test") {
     return {
       success: true,
       transaction: "0xTestTxHash",

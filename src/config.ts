@@ -82,11 +82,7 @@ export function resolveConfig(input: GateConfig): ResolvedConfig {
     } = input.crypto;
 
     // Validate address
-    if (
-      typeof address !== "string" ||
-      !address.startsWith("0x") ||
-      address.length !== 42
-    ) {
+    if (typeof address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
       throw new GateConfigError(
         "crypto.address must be a valid Ethereum address (0x + 40 hex chars)",
       );

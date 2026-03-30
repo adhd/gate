@@ -10,6 +10,7 @@ import {
   hasX402Payment,
   extractX402Payment,
   verifyX402Payment,
+  settleX402Payment,
   buildX402PaymentRequired,
 } from "./crypto/x402.js";
 import { hasMppPayment, verifyMppCredential } from "./crypto/mpp.js";
@@ -38,13 +39,24 @@ export async function handleGatedRequest(
           config.crypto.facilitatorUrl,
           payment,
           matchedReq,
+          config.mode,
         );
 
         if (verification.isValid) {
+          // Settle the payment on-chain (fire and forget, don't block response)
+          settleX402Payment(
+            config.crypto.facilitatorUrl,
+            payment,
+            matchedReq,
+            config.mode,
+          ).catch((err) =>
+            console.error("[gate] x402 settlement failed:", err),
+          );
+
           return {
             action: "pass_crypto",
             payer: verification.payer || "unknown",
-            protocol: "x402" as const,
+            protocol: "x402",
           };
         }
         return {
@@ -63,7 +75,7 @@ export async function handleGatedRequest(
         return {
           action: "pass_crypto",
           payer: result.payer || "unknown",
-          protocol: "mpp" as const,
+          protocol: "mpp",
           txHash: (result.payload?.hash as string) || undefined,
         };
       }

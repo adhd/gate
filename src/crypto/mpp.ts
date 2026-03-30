@@ -100,6 +100,11 @@ export function buildMppChallenge(
  * The header value is `Payment <base64url-encoded-json>` where the JSON
  * is an MppCredential object. Verification recomputes the HMAC over the
  * challenge fields and uses constant-time comparison against the provided id.
+ *
+ * WARNING: This only verifies the challenge HMAC, NOT the actual on-chain
+ * payment. The payload.hash field is returned but not verified against the
+ * blockchain. For production use, the caller should verify the transaction
+ * hash independently or use a settlement service.
  */
 export function verifyMppCredential(
   authHeader: string,
