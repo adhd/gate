@@ -124,6 +124,70 @@ describe("formatPrice via paymentRequired output", () => {
   });
 });
 
+describe("crypto info in 402 responses", () => {
+  const cryptoConfig = {
+    address: "0x" + "a".repeat(40),
+    pricePerCallUsd: 0.005,
+    amountSmallestUnit: "5000",
+    networks: ["eip155:8453"],
+    facilitatorUrl: "https://gate.test/facilitator",
+    mppSecret: "test-secret",
+    asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    assetDecimals: 6,
+  };
+
+  it("paymentRequired includes crypto when cryptoConfig provided", () => {
+    const config = makeConfig();
+    const result = paymentRequired(
+      config,
+      "https://example.com/__gate/buy",
+      cryptoConfig,
+    );
+
+    expect(result.crypto).toBeDefined();
+    expect(result.crypto!.protocols).toEqual(["x402", "mpp"]);
+    expect(result.crypto!.address).toBe("0x" + "a".repeat(40));
+    expect(result.crypto!.network).toBe("eip155:8453");
+    expect(result.crypto!.asset).toBe("USDC");
+    expect(result.crypto!.amount).toBe("5000");
+    expect(result.crypto!.amountFormatted).toContain("$");
+  });
+
+  it("paymentRequired omits crypto when cryptoConfig not provided", () => {
+    const config = makeConfig();
+    const result = paymentRequired(config, "https://example.com/__gate/buy");
+
+    expect(result.crypto).toBeUndefined();
+  });
+
+  it("creditsExhausted includes crypto when cryptoConfig provided", () => {
+    const config = makeConfig();
+    const apiKey = "gate_test_" + "a".repeat(32);
+    const result = creditsExhausted(
+      config,
+      "https://example.com/__gate/buy",
+      apiKey,
+      cryptoConfig,
+    );
+
+    expect(result.crypto).toBeDefined();
+    expect(result.crypto!.protocols).toEqual(["x402", "mpp"]);
+    // Also still has key info
+    expect(result.key).toBeDefined();
+  });
+
+  it("creditsExhausted omits crypto when cryptoConfig not provided", () => {
+    const config = makeConfig();
+    const result = creditsExhausted(
+      config,
+      "https://example.com/__gate/buy",
+      "gate_test_" + "a".repeat(32),
+    );
+
+    expect(result.crypto).toBeUndefined();
+  });
+});
+
 describe("GateConfigError", () => {
   it("prefixes message with [gate]", () => {
     const error = new GateConfigError("bad config");
