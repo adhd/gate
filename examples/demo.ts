@@ -15,7 +15,14 @@ const G = "\x1b[32m",
   D = "\x1b[2m",
   X = "\x1b[0m";
 const app = new Hono();
-const billing = mountGate({ credits: { amount: 3, price: 500 } });
+const billing = mountGate({
+  credits: { amount: 3, price: 500 },
+  crypto: {
+    address: "0x" + "a".repeat(40),
+    pricePerCall: 0.005,
+    networks: ["base-sepolia"],
+  },
+});
 
 app.use("/api/*", billing.middleware);
 app.get("/api/joke", (c) =>
@@ -33,11 +40,12 @@ const server = serve({ fetch: app.fetch, port: 0 }, async (info) => {
 
   // Step 1: No key
   console.log(`\n${Y}1. Call without a key:${X}`);
-  const r1 = await fetch(`${base}/api/joke`).then(json);
-  console.log(`${R}   402 ${r1.error}${X}`);
-  console.log(`${D}   ${r1.message}${X}`);
+  const r1 = await fetch(`${base}/api/joke`);
+  const b1 = await r1.json();
+  console.log(`${R}   402 ${b1.error}${X}`);
+  console.log(`${D}   ${b1.message}${X}`);
 
-  // Step 2: Buy credits
+  // Step 2: Buy credits via Stripe
   console.log(`\n${Y}2. Buy credits (test checkout):${X}`);
   const r2 = await fetch(`${base}/__gate/success?session_id=cs_test_demo`, {
     headers: { accept: "application/json" },
@@ -67,7 +75,51 @@ const server = serve({ fetch: app.fetch, port: 0 }, async (info) => {
   console.log(`${R}   402 ${r4.error}${X}`);
   console.log(`${D}   ${r4.message}${X}`);
 
-  console.log(`\n${G}Full billing lifecycle in 3 lines of code.${X}\n`);
+  // Step 5: Crypto payment (x402)
+  console.log(`\n${Y}5. Pay with x402 (no key needed):${X}`);
+
+  // 5a: Get 402 with crypto headers
+  const r5a = await fetch(`${base}/api/joke`, {
+    headers: { accept: "application/json", "user-agent": "agent/1.0" },
+  });
+  const prHeader = r5a.headers.get("payment-required");
+  console.log(`${D}   Got 402 with PAYMENT-REQUIRED header${X}`);
+
+  // 5b: Parse payment requirements
+  const paymentRequired = JSON.parse(atob(prHeader!));
+  const accepted = paymentRequired.accepts[0];
+  console.log(
+    `${D}   Network: ${accepted.network}, Amount: ${accepted.amount} (smallest unit), PayTo: ${accepted.payTo}${X}`,
+  );
+
+  // 5c: Build x402 payment payload and retry
+  const paymentPayload = {
+    x402Version: 2,
+    resource: { url: `${base}/api/joke` },
+    accepted,
+    payload: {
+      signature: "0xFakeSignature",
+      fromAddress: "0xAgentWallet123",
+    },
+  };
+  const paymentSignature = btoa(JSON.stringify(paymentPayload));
+
+  const r5b = await fetch(`${base}/api/joke`, {
+    headers: {
+      accept: "application/json",
+      "user-agent": "agent/1.0",
+      "payment-signature": paymentSignature,
+    },
+  });
+  const b5b = await r5b.json();
+  const payer = r5b.headers.get("x-payment-payer");
+  const protocol = r5b.headers.get("x-payment-protocol");
+  console.log(`${G}   200 via ${protocol}, payer: ${payer}${X}`);
+  console.log(`${D}   ${b5b.joke}${X}`);
+
+  console.log(
+    `\n${G}Full billing lifecycle: Stripe credits + x402 crypto in one API.${X}\n`,
+  );
   server.close();
   process.exit(0);
 });
