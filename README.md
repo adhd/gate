@@ -141,6 +141,8 @@ An agent that understands either protocol can read the header, build a payment, 
 2. **x402** (agents): Agent reads `PAYMENT-REQUIRED` header, signs a USDC transfer, sends it back in a `payment-signature` header. Gate verifies via a facilitator and lets the request through.
 3. **MPP** (agents): Agent reads `WWW-Authenticate` challenge, builds an HMAC credential with a payment proof, sends it in `Authorization: Payment <credential>`. Gate verifies the HMAC and lets the request through.
 
+> **WARNING:** MPP verification is HMAC-only. Gate verifies that the challenge was not tampered with, but does **not** verify the on-chain transaction referenced in `payload.hash`. For production use, you should independently verify the transaction hash against the blockchain or use a settlement service.
+
 ### Example 402 response with crypto
 
 ```
