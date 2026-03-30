@@ -50,17 +50,22 @@ Set `GATE_MODE=test` to skip Stripe entirely. No credentials needed.
 # start your app
 GATE_MODE=test node server.js
 
-# get a 402
+# get a 402 (includes a test_key you can copy directly)
 curl -i http://localhost:3000/api/data
 
-# issue a test key
-curl "http://localhost:3000/__gate/success?session_id=cs_test_1" \
-  -H "accept: application/json"
-# returns: { "api_key": "gate_test_...", "credits": 1000 }
+# or get a test key explicitly
+curl http://localhost:3000/__gate/test-key
+# returns: { "api_key": "gate_test_...", "credits": 1000, "mode": "test" }
 
 # use it
 curl http://localhost:3000/api/data -H "Authorization: Bearer gate_test_..."
 ```
+
+In test mode:
+
+- Every 402 response includes a `test_key` field with a ready-to-use API key
+- `GET /__gate/test-key` returns a fresh key instantly (no session_id, no Stripe concepts)
+- The old `/__gate/success?session_id=cs_test_anything` flow still works for backward compatibility
 
 ## Express
 
@@ -142,6 +147,32 @@ An agent that understands either protocol can read the header, build a payment, 
 3. **MPP** (agents): Agent reads `WWW-Authenticate` challenge, builds an HMAC credential with a payment proof, sends it in `Authorization: Payment <credential>`. Gate verifies the HMAC and lets the request through.
 
 > **WARNING:** MPP verification is HMAC-only. Gate verifies that the challenge was not tampered with, but does **not** verify the on-chain transaction referenced in `payload.hash`. For production use, you should independently verify the transaction hash against the blockchain or use a settlement service.
+
+### Buy credits with crypto
+
+Agents can also pay crypto once to get an API key with credits, instead of paying per-request:
+
+```bash
+# Build a payment payload (the agent does this using its wallet)
+# The payment amount should cover the full credit pack price:
+# pricePerCall * credits.amount in USDC smallest units
+
+curl -X POST http://localhost:3000/__gate/buy-crypto \
+  -H "payment-signature: <base64-encoded-x402-payment>"
+
+# Returns:
+# { "api_key": "gate_live_...", "credits": 1000, "tx_hash": "0x...", "network": "eip155:8453" }
+```
+
+The flow:
+
+1. Agent POSTs to `/__gate/buy-crypto` with a `payment-signature` header (same x402 format as per-request)
+2. Gate verifies the payment via the facilitator
+3. Gate settles the payment on-chain
+4. Gate generates an API key with the configured number of credits
+5. Agent uses the key for subsequent calls (no more per-request payments needed)
+
+In test mode, verification and settlement auto-succeed without any blockchain interaction.
 
 ### Example 402 response with crypto
 
