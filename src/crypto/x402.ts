@@ -122,11 +122,11 @@ export async function verifyX402Payment(
   paymentPayload: X402PaymentPayload,
   paymentRequirements: X402PaymentRequirements,
 ): Promise<X402VerifyResult> {
-  // Test mode: auto-verify
+  // Test mode: auto-verify without calling facilitator
   if (facilitatorUrl.includes("gate.test")) {
     return {
       isValid: true,
-      payer: (paymentPayload.payload?.payer as string) || "0xTestPayer",
+      payer: (paymentPayload.payload?.fromAddress as string) || "0xTestPayer",
     };
   }
 
@@ -169,13 +169,13 @@ export async function settleX402Payment(
   paymentPayload: X402PaymentPayload,
   paymentRequirements: X402PaymentRequirements,
 ): Promise<X402SettleResult> {
-  // Test mode: auto-settle
+  // Test mode: auto-settle without calling facilitator
   if (facilitatorUrl.includes("gate.test")) {
     return {
       success: true,
-      transaction: "0xTestTxHash",
+      transaction: "0xTestTxHash_" + Date.now().toString(16),
       network: paymentRequirements.network || "eip155:84532",
-      payer: (paymentPayload.payload?.payer as string) || "0xTestPayer",
+      payer: (paymentPayload.payload?.fromAddress as string) || "0xTestPayer",
     };
   }
 

@@ -166,7 +166,7 @@ describe("extractX402Payment", () => {
         maxTimeoutSeconds: 60,
         extra: {},
       },
-      payload: { payer: "0xPayer123" },
+      payload: { fromAddress: "0xPayer123" },
     };
 
     const encoded = Buffer.from(JSON.stringify(payload)).toString("base64");
@@ -174,7 +174,7 @@ describe("extractX402Payment", () => {
 
     expect(result).not.toBeNull();
     expect(result!.x402Version).toBe(2);
-    expect(result!.payload.payer).toBe("0xPayer123");
+    expect(result!.payload.fromAddress).toBe("0xPayer123");
   });
 
   it("extracts payment from x-payment header", () => {
@@ -227,7 +227,7 @@ describe("verifyX402Payment", () => {
       maxTimeoutSeconds: 60,
       extra: {},
     },
-    payload: { payer: "0xPayer123" },
+    payload: { fromAddress: "0xPayer123" },
   };
 
   const mockRequirements = mockPayload.accepted;
@@ -335,7 +335,7 @@ describe("settleX402Payment", () => {
       maxTimeoutSeconds: 60,
       extra: {},
     },
-    payload: { payer: "0xPayer123" },
+    payload: { fromAddress: "0xPayer123" },
   };
 
   const mockRequirements = mockPayload.accepted;
@@ -348,7 +348,7 @@ describe("settleX402Payment", () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.transaction).toBe("0xTestTxHash");
+    expect(result.transaction).toContain("0xTestTxHash_");
     expect(result.network).toBe("eip155:8453");
     expect(result.payer).toBe("0xPayer123");
   });
