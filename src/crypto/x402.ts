@@ -120,7 +120,10 @@ export async function verifyX402Payment(
   if (mode === "test") {
     return {
       isValid: true,
-      payer: (paymentPayload.payload?.payer as string) || "0xTestPayer",
+      payer:
+        (paymentPayload.payload?.payer as string) ||
+        (paymentPayload.payload?.fromAddress as string) ||
+        "0xTestPayer",
     };
   }
 
@@ -174,9 +177,12 @@ export async function settleX402Payment(
   if (mode === "test") {
     return {
       success: true,
-      transaction: "0xTestTxHash",
+      transaction: "0xTestTxHash_" + Date.now().toString(16),
       network: paymentRequirements.network || "eip155:84532",
-      payer: (paymentPayload.payload?.payer as string) || "0xTestPayer",
+      payer:
+        (paymentPayload.payload?.payer as string) ||
+        (paymentPayload.payload?.fromAddress as string) ||
+        "0xTestPayer",
     };
   }
 

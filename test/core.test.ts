@@ -271,7 +271,7 @@ describe("crypto payment flow", () => {
         maxTimeoutSeconds: 60,
         extra: {},
       },
-      payload: { payer: "0xPayerAddress" },
+      payload: { fromAddress: "0xPayerAddress" },
     };
     const encoded = Buffer.from(JSON.stringify(payload)).toString("base64");
 
@@ -297,7 +297,7 @@ describe("crypto payment flow", () => {
         maxTimeoutSeconds: 60,
         extra: {},
       },
-      payload: { payer: "0xAgent" },
+      payload: { fromAddress: "0xAgent" },
     };
     const encoded = Buffer.from(JSON.stringify(payload)).toString("base64");
 
@@ -506,7 +506,7 @@ describe("crypto payment flow", () => {
         maxTimeoutSeconds: 60,
         extra: {},
       },
-      payload: { payer: "0xAgent" },
+      payload: { fromAddress: "0xAgent" },
     };
     const encoded = Buffer.from(JSON.stringify(payload)).toString("base64");
 
