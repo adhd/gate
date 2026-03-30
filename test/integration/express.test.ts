@@ -102,4 +102,72 @@ describe("express adapter integration", () => {
     expect(res.status).toBe(401);
     expect(res.body.error).toBe("Invalid API key");
   });
+
+  describe("crypto headers", () => {
+    function buildCryptoApp() {
+      const app = express();
+      const billing = mountGate({
+        credits: { amount: 100, price: 500 },
+        crypto: {
+          address: "0x" + "a".repeat(40),
+          pricePerCall: 0.005,
+        },
+      });
+
+      app.use("/__gate", billing.routes());
+      app.use(express.json());
+      app.use("/api", billing.middleware);
+      app.get("/api/data", (_req, res) => res.json({ ok: true }));
+
+      return { app, billing };
+    }
+
+    it("402 includes PAYMENT-REQUIRED header when crypto configured", async () => {
+      const { app } = buildCryptoApp();
+
+      const res = await request(app)
+        .get("/api/data")
+        .set("accept", "application/json")
+        .set("user-agent", "curl/8.0");
+
+      expect(res.status).toBe(402);
+      const pr = res.headers["payment-required"];
+      expect(pr).toBeTruthy();
+
+      const decoded = JSON.parse(atob(pr));
+      expect(decoded.x402Version).toBe(2);
+      expect(decoded.accepts).toBeInstanceOf(Array);
+      expect(decoded.accepts[0].payTo).toBe("0x" + "a".repeat(40));
+      expect(decoded.accepts[0].amount).toBe("5000");
+    });
+
+    it("402 includes WWW-Authenticate: Payment header when crypto configured", async () => {
+      const { app } = buildCryptoApp();
+
+      const res = await request(app)
+        .get("/api/data")
+        .set("accept", "application/json")
+        .set("user-agent", "curl/8.0");
+
+      expect(res.status).toBe(402);
+      const wwwAuth = res.headers["www-authenticate"];
+      expect(wwwAuth).toBeTruthy();
+      expect(wwwAuth).toContain("Payment ");
+      expect(wwwAuth).toContain('method="tempo"');
+      expect(wwwAuth).toContain('intent="charge"');
+    });
+
+    it("402 omits crypto headers when crypto not configured", async () => {
+      const { app } = buildExpressApp();
+
+      const res = await request(app)
+        .get("/api/data")
+        .set("accept", "application/json")
+        .set("user-agent", "curl/8.0");
+
+      expect(res.status).toBe(402);
+      expect(res.headers["payment-required"]).toBeUndefined();
+      expect(res.headers["www-authenticate"]).toBeUndefined();
+    });
+  });
 });
