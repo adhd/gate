@@ -6,15 +6,15 @@
  *
  * Then:
  *   curl -i http://localhost:3000/api/joke          # 402
- *   curl "http://localhost:3000/__gate/success?session_id=cs_test_1" -H "accept: application/json"
+ *   curl http://localhost:3000/__gate/test-key
  *   curl http://localhost:3000/api/joke -H "Authorization: Bearer <key from above>"
  */
 import express from "express";
-import { mountGate } from "../src/adapters/express.js";
+import { gate } from "../src/adapters/express.js";
 
 const app = express();
 
-const billing = mountGate({
+const g = gate({
   credits: { amount: 100, price: 200 }, // 100 calls for $2.00
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,
@@ -23,12 +23,12 @@ const billing = mountGate({
 });
 
 // Mount gate routes BEFORE express.json() so webhook gets raw body
-app.use("/__gate", billing.routes());
+app.use("/__gate", g.routes);
 
 app.use(express.json());
 
 // Protected route
-app.use("/api", billing.middleware);
+app.use("/api", g);
 app.get("/api/joke", (_req, res) => {
   res.json({
     joke: "Why do programmers prefer dark mode? Because light attracts bugs.",
