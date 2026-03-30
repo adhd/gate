@@ -3,7 +3,7 @@ import type {
   GateRequestContext,
   ResolvedConfig,
 } from "./types.js";
-import { extractKeyFromRequest } from "./keys.js";
+import { extractKeyFromRequest, generateKey } from "./keys.js";
 import { classifyClient } from "./detect.js";
 import { paymentRequired, creditsExhausted } from "./errors.js";
 import {
@@ -14,6 +14,29 @@ import {
   buildX402PaymentRequired,
 } from "./crypto/x402.js";
 import { hasMppPayment, verifyMppCredential } from "./crypto/mpp.js";
+
+/**
+ * In test mode, generate a ready-to-use key and attach it to the 402 body.
+ * This lets developers copy the key directly from the error response.
+ */
+async function attachTestKey(
+  config: ResolvedConfig,
+  body: { test_key?: string },
+): Promise<void> {
+  if (config.mode !== "test") return;
+
+  const key = generateKey("test");
+  const record = {
+    key,
+    credits: config.credits.amount,
+    stripeCustomerId: null,
+    stripeSessionId: `auto_test_${Date.now()}`,
+    createdAt: new Date().toISOString(),
+    lastUsedAt: null,
+  };
+  await config.store.set(key, record);
+  body.test_key = key;
+}
 
 export async function handleGatedRequest(
   ctx: GateRequestContext,
@@ -101,9 +124,16 @@ export async function handleGatedRequest(
           return { action: "error", status: 401, message: "Invalid API key" };
         case "exhausted": {
           const purchaseUrl = buildPurchaseUrl(config, ctx);
+          const body = creditsExhausted(
+            config,
+            purchaseUrl,
+            apiKey,
+            config.crypto,
+          );
+          await attachTestKey(config, body);
           return {
             action: "payment_required",
-            body: creditsExhausted(config, purchaseUrl, apiKey, config.crypto),
+            body,
             status: 402,
           };
         }
@@ -127,9 +157,11 @@ export async function handleGatedRequest(
     return { action: "redirect", url: purchaseUrl };
   }
 
+  const body = paymentRequired(config, purchaseUrl, config.crypto);
+  await attachTestKey(config, body);
   return {
     action: "payment_required",
-    body: paymentRequired(config, purchaseUrl, config.crypto),
+    body,
     status: 402,
   };
 }

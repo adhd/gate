@@ -130,6 +130,8 @@ export interface GateResponse402 {
     amount: string;
     amountFormatted: string;
   };
+  /** Only present in test mode. A ready-to-use test API key. */
+  test_key?: string;
 }
 
 export interface GateMiddlewareOptions {
