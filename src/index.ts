@@ -23,6 +23,7 @@ export { RedisStore } from "./store/redis.js";
 export type {
   GateCredits,
   GateStripeConfig,
+  GateCryptoConfig,
   GateConfig,
   ResolvedConfig,
   KeyRecord,

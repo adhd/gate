@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveConfig } from "../src/config.js";
 import { handleGatedRequest } from "../src/core.js";
 import { generateKey } from "../src/keys.js";
 import type { KeyRecord, ResolvedConfig } from "../src/types.js";
+import { MemoryStore } from "../src/store/memory.js";
 
 function makeRecord(key: string, credits: number): KeyRecord {
   return {

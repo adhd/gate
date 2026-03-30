@@ -1,6 +1,17 @@
+import crypto from "node:crypto";
 import type { GateConfig, ResolvedConfig } from "./types.js";
 import { MemoryStore } from "./store/memory.js";
 import { GateConfigError } from "./errors.js";
+
+const NETWORK_MAP: Record<string, string> = {
+  base: "eip155:8453",
+  "base-sepolia": "eip155:84532",
+};
+
+const USDC_ADDRESSES: Record<string, string> = {
+  "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "eip155:84532": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+};
 
 export function resolveConfig(input: GateConfig): ResolvedConfig {
   const mode = (
@@ -42,14 +53,12 @@ export function resolveConfig(input: GateConfig): ResolvedConfig {
   const webhookSecret =
     input.stripe?.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET || "";
 
-  if (mode === "live" && !secretKey) {
+  const hasCrypto = !!input.crypto;
+  const hasStripe = !!(secretKey && webhookSecret);
+
+  if (mode === "live" && !hasStripe && !hasCrypto) {
     throw new GateConfigError(
-      "Stripe secret key required. Set stripe.secretKey in config or STRIPE_SECRET_KEY env var.",
-    );
-  }
-  if (mode === "live" && !webhookSecret) {
-    throw new GateConfigError(
-      "Stripe webhook secret required. Set stripe.webhookSecret in config or STRIPE_WEBHOOK_SECRET env var.",
+      "Either Stripe or crypto config is required in live mode. Set stripe keys or provide crypto config.",
     );
   }
 
@@ -58,6 +67,83 @@ export function resolveConfig(input: GateConfig): ResolvedConfig {
     throw new GateConfigError(
       "baseUrl is required in live mode. Set it to your public URL (e.g. https://api.example.com).",
     );
+  }
+
+  // Resolve crypto config
+  let resolvedCrypto: ResolvedConfig["crypto"] = null;
+  if (input.crypto) {
+    const {
+      address,
+      pricePerCall,
+      networks,
+      facilitatorUrl,
+      mppSecret,
+      asset,
+    } = input.crypto;
+
+    // Validate address
+    if (
+      typeof address !== "string" ||
+      !address.startsWith("0x") ||
+      address.length !== 42
+    ) {
+      throw new GateConfigError(
+        "crypto.address must be a valid Ethereum address (0x + 40 hex chars)",
+      );
+    }
+
+    // Validate pricePerCall
+    if (
+      typeof pricePerCall !== "number" ||
+      !Number.isFinite(pricePerCall) ||
+      pricePerCall <= 0
+    ) {
+      throw new GateConfigError(
+        "crypto.pricePerCall must be a positive finite number",
+      );
+    }
+
+    // Resolve mppSecret
+    let resolvedMppSecret = mppSecret || process.env.GATE_MPP_SECRET || "";
+    if (!resolvedMppSecret) {
+      if (mode === "test") {
+        resolvedMppSecret = crypto.randomBytes(32).toString("hex");
+      } else {
+        throw new GateConfigError(
+          "crypto.mppSecret is required. Set it in config or GATE_MPP_SECRET env var.",
+        );
+      }
+    }
+
+    // Map networks to CAIP-2
+    const rawNetworks = networks || ["base"];
+    const resolvedNetworks = rawNetworks.map((n) =>
+      n.includes(":") ? n : NETWORK_MAP[n] || n,
+    );
+
+    const assetDecimals = 6;
+    const amountSmallestUnit = Math.round(
+      pricePerCall * Math.pow(10, assetDecimals),
+    ).toString();
+
+    // Resolve asset address from first network if not provided
+    const resolvedAsset = asset || USDC_ADDRESSES[resolvedNetworks[0]] || "";
+
+    const resolvedFacilitatorUrl =
+      mode === "test"
+        ? "https://gate.test/facilitator"
+        : facilitatorUrl || "https://x402.org/facilitator";
+
+    resolvedCrypto = {
+      address,
+      pricePerCallUsd: pricePerCall,
+      amountSmallestUnit,
+      networks: resolvedNetworks,
+      facilitatorUrl: resolvedFacilitatorUrl,
+      mppSecret: resolvedMppSecret,
+      asset: resolvedAsset,
+      assetDecimals,
+    };
   }
 
   const store = input.store || new MemoryStore();
@@ -79,6 +165,7 @@ export function resolveConfig(input: GateConfig): ResolvedConfig {
       secretKey,
       webhookSecret,
     },
+    crypto: resolvedCrypto,
     store,
     failMode: input.failMode || "open",
     baseUrl: input.baseUrl || null,

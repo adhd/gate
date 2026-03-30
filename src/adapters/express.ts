@@ -19,6 +19,11 @@ import {
   handleCheckoutSuccess,
   handleWebhook,
 } from "../stripe.js";
+import {
+  buildX402PaymentRequired,
+  encodePaymentRequired,
+} from "../crypto/x402.js";
+import { buildMppChallenge } from "../crypto/mpp.js";
 
 function expressHeaders(req: Request): Record<string, string> {
   const h: Record<string, string> = {};
@@ -50,16 +55,39 @@ function createMiddleware(resolved: ResolvedConfig, cost: number) {
         res.setHeader("X-Gate-Credits-Remaining", String(result.remaining));
         next();
         break;
+      case "pass_crypto":
+        res.setHeader("X-Payment-Payer", result.payer);
+        res.setHeader("X-Payment-Protocol", result.protocol);
+        next();
+        break;
       case "fail_open":
         next();
         break;
       case "redirect":
         res.redirect(302, result.url);
         break;
-      case "payment_required":
+      case "payment_required": {
         res.setHeader("X-Payment-Protocol", "gate/v1");
+        if (resolved.crypto) {
+          const url = expressUrl(req);
+          const x402 = buildX402PaymentRequired(resolved, url, cost);
+          res.setHeader("PAYMENT-REQUIRED", encodePaymentRequired(x402));
+          const mppChallenge = buildMppChallenge(
+            {
+              realm: new URL(url).hostname,
+              method: "tempo",
+              intent: "charge",
+              amount: resolved.crypto.amountSmallestUnit,
+              currency: resolved.crypto.asset,
+              recipient: resolved.crypto.address,
+            },
+            resolved.crypto.mppSecret,
+          );
+          res.setHeader("WWW-Authenticate", mppChallenge);
+        }
         res.status(402).json(result.body);
         break;
+      }
       case "error":
         res.status(result.status).json({ error: result.message });
         break;

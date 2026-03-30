@@ -16,9 +16,25 @@ export interface GateStripeConfig {
   webhookSecret?: string;
 }
 
+export interface GateCryptoConfig {
+  /** Wallet address to receive USDC payments (0x + 40 hex chars) */
+  address: string;
+  /** Price per API call in USD (e.g. 0.005 for half a cent) */
+  pricePerCall: number;
+  /** Supported networks. Default: ['base']. Options: 'base', 'base-sepolia' */
+  networks?: string[];
+  /** x402 facilitator URL. Default: 'https://x402.org/facilitator' */
+  facilitatorUrl?: string;
+  /** Secret key for MPP HMAC challenges (32+ bytes). Falls back to GATE_MPP_SECRET env var. */
+  mppSecret?: string;
+  /** USDC contract address override. Default: looked up by network. */
+  asset?: string;
+}
+
 export interface GateConfig {
   credits: GateCredits;
   stripe?: GateStripeConfig;
+  crypto?: GateCryptoConfig;
   /** Credit store. Defaults to MemoryStore. */
   store?: CreditStore;
   /** Behavior when store is unreachable. Default: 'open' */
@@ -41,6 +57,16 @@ export interface ResolvedConfig {
     secretKey: string;
     webhookSecret: string;
   };
+  crypto: {
+    address: string;
+    pricePerCallUsd: number;
+    amountSmallestUnit: string;
+    networks: string[];
+    facilitatorUrl: string;
+    mppSecret: string;
+    asset: string;
+    assetDecimals: number;
+  } | null;
   store: CreditStore;
   failMode: "open" | "closed";
   baseUrl: string | null;
@@ -96,6 +122,14 @@ export interface GateResponse402 {
     id: string;
     credits_remaining: number;
   };
+  crypto?: {
+    protocols: string[];
+    address: string;
+    network: string;
+    asset: string;
+    amount: string;
+    amountFormatted: string;
+  };
 }
 
 export interface GateMiddlewareOptions {
@@ -115,7 +149,13 @@ export interface GateRequestContext {
 
 export type GateResult =
   | { action: "pass"; key: string; remaining: number }
+  | {
+      action: "pass_crypto";
+      payer: string;
+      protocol: "x402" | "mpp";
+      txHash?: string;
+    }
   | { action: "fail_open" }
   | { action: "redirect"; url: string }
   | { action: "payment_required"; body: GateResponse402; status: 402 }
-  | { action: "error"; status: 401 | 503; message: string };
+  | { action: "error"; status: 401 | 402 | 503; message: string };

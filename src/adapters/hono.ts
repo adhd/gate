@@ -18,6 +18,11 @@ import {
   handleCheckoutSuccess,
   handleWebhook,
 } from "../stripe.js";
+import {
+  buildX402PaymentRequired,
+  encodePaymentRequired,
+} from "../crypto/x402.js";
+import { buildMppChallenge } from "../crypto/mpp.js";
 
 function honoHeaders(c: {
   req: { raw: { headers: Headers } };
@@ -50,6 +55,11 @@ function createMiddleware(
         c.header("X-Gate-Credits-Remaining", String(result.remaining));
         await next();
         break;
+      case "pass_crypto":
+        c.header("X-Payment-Payer", result.payer);
+        c.header("X-Payment-Protocol", result.protocol);
+        await next();
+        break;
       case "fail_open":
         await next();
         break;
@@ -57,6 +67,22 @@ function createMiddleware(
         return c.redirect(result.url, 302);
       case "payment_required":
         c.header("X-Payment-Protocol", "gate/v1");
+        if (resolved.crypto) {
+          const x402 = buildX402PaymentRequired(resolved, c.req.url, cost);
+          c.header("PAYMENT-REQUIRED", encodePaymentRequired(x402));
+          const mppChallenge = buildMppChallenge(
+            {
+              realm: new URL(c.req.url).hostname,
+              method: "tempo",
+              intent: "charge",
+              amount: resolved.crypto.amountSmallestUnit,
+              currency: resolved.crypto.asset,
+              recipient: resolved.crypto.address,
+            },
+            resolved.crypto.mppSecret,
+          );
+          c.header("WWW-Authenticate", mppChallenge);
+        }
         return c.json(result.body, 402);
       case "error":
         return c.json({ error: result.message }, result.status);
