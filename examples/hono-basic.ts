@@ -6,16 +6,16 @@
  *
  * Then:
  *   curl -i http://localhost:3000/api/joke          # 402
- *   curl "http://localhost:3000/__gate/success?session_id=cs_test_1" -H "accept: application/json"
+ *   curl http://localhost:3000/__gate/test-key
  *   curl http://localhost:3000/api/joke -H "Authorization: Bearer <key from above>"
  */
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { mountGate } from "../src/adapters/hono.js";
+import { gate } from "../src/adapters/hono.js";
 
 const app = new Hono();
 
-const billing = mountGate({
+const g = gate({
   credits: { amount: 100, price: 200 }, // 100 calls for $2.00
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,
@@ -23,18 +23,16 @@ const billing = mountGate({
   },
 });
 
+// Gate routes (checkout, status, webhook, etc.)
+app.use("/__gate/*", g.routes);
+
 // Protected route
-app.use("/api/*", billing.middleware);
+app.use("/api/*", g);
 app.get("/api/joke", (c) =>
   c.json({
     joke: "Why do programmers prefer dark mode? Because light attracts bugs.",
   }),
 );
-
-// Gate routes (checkout success + webhook)
-const gateRoutes = new Hono();
-billing.routes(gateRoutes);
-app.route("/__gate", gateRoutes);
 
 // Health check (not gated)
 app.get("/", (c) =>

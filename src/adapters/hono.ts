@@ -404,25 +404,13 @@ export function gate(
   // When mounted via app.use("/__gate/*", g.routes), Hono passes the full URL
   // in c.req.raw, so we need to strip the mount prefix before dispatching.
   const routesHandler: MiddlewareHandler = async (c: Context, next: Next) => {
-    const url = new URL(c.req.url);
-    const prefix = resolved.routePrefix;
-    let subPath = url.pathname;
-    if (subPath.startsWith(prefix + "/")) {
-      subPath = subPath.slice(prefix.length);
-    } else if (subPath === prefix) {
-      subPath = "/";
-    }
-    const newUrl = new URL(subPath + url.search, url.origin);
-    const newReq = new Request(newUrl.toString(), {
-      method: c.req.raw.method,
-      headers: c.req.raw.headers,
-      body: c.req.raw.body,
-      // @ts-expect-error duplex needed for request body streaming
-      duplex: "half",
-    });
-    const response = await routesApp.fetch(newReq);
-    if (response.status !== 404) {
-      return response;
+    const routeResponse = await tryRoutes(
+      routesApp,
+      c.req.raw,
+      resolved.routePrefix,
+    );
+    if (routeResponse) {
+      return routeResponse;
     }
     await next();
   };

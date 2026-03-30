@@ -6,7 +6,7 @@ process.env.GATE_MODE = "test";
 
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { mountGate } from "../src/adapters/hono.js";
+import { gate } from "../src/adapters/hono.js";
 
 const G = "\x1b[32m",
   R = "\x1b[31m",
@@ -15,7 +15,7 @@ const G = "\x1b[32m",
   D = "\x1b[2m",
   X = "\x1b[0m";
 const app = new Hono();
-const billing = mountGate({
+const g = gate({
   credits: { amount: 3, price: 500 },
   crypto: {
     address: "0x" + "a".repeat(40),
@@ -24,15 +24,13 @@ const billing = mountGate({
   },
 });
 
-app.use("/api/*", billing.middleware);
+app.use("/__gate/*", g.routes);
+app.use("/api/*", g);
 app.get("/api/joke", (c) =>
   c.json({
     joke: "Why do programmers prefer dark mode? Because light attracts bugs.",
   }),
 );
-const gateRoutes = new Hono();
-billing.routes(gateRoutes);
-app.route("/__gate", gateRoutes);
 
 const server = serve({ fetch: app.fetch, port: 0 }, async (info) => {
   const base = `http://localhost:${info.port}`;

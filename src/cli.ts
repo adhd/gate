@@ -10,7 +10,7 @@
 
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { mountGate } from "./adapters/hono.js";
+import { gate } from "./adapters/hono.js";
 import net from "node:net";
 
 // --- ANSI colors ---
@@ -31,13 +31,14 @@ async function findPort(preferred: number): Promise<number> {
       server.close(() => resolve(preferred));
     });
     server.on("error", () => {
-      // Port in use, try next
+      // Port in use, let the OS pick one
       const server2 = net.createServer();
       server2.listen(0, () => {
         const addr = server2.address();
         const port = typeof addr === "object" && addr ? addr.port : 0;
         server2.close(() => resolve(port));
       });
+      server2.on("error", () => resolve(0));
     });
   });
 }
@@ -52,7 +53,7 @@ async function main() {
   const base = `http://localhost:${port}`;
 
   const app = new Hono();
-  const billing = mountGate({
+  const g = gate({
     credits: { amount: 10, price: 500 },
     crypto: {
       address: "0x" + "a".repeat(40),
@@ -83,8 +84,9 @@ async function main() {
     console.log(line);
   });
 
-  // --- Gate routes ---
-  app.use("/api/*", billing.middleware);
+  // --- Gate routes + billing ---
+  app.use("/__gate/*", g.routes);
+  app.use("/api/*", g);
 
   app.get("/api/joke", (c) =>
     c.json({
@@ -99,10 +101,6 @@ async function main() {
       conditions: "Foggy, as usual",
     }),
   );
-
-  const gateRoutes = new Hono();
-  billing.routes(gateRoutes);
-  app.route("/__gate", gateRoutes);
 
   // --- Start server ---
   serve({ fetch: app.fetch, port }, () => {
