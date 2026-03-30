@@ -42,11 +42,31 @@ function maskKey(key: string): string {
   return key.slice(0, 10) + "..." + key.slice(-4);
 }
 
+/**
+ * Build the crypto info block for 402 response bodies.
+ * Returns undefined if crypto is not configured.
+ */
+function buildCryptoInfo(
+  cryptoConfig: ResolvedConfig["crypto"],
+): GateResponse402["crypto"] {
+  if (!cryptoConfig) return undefined;
+  return {
+    protocols: ["x402", "mpp"],
+    address: cryptoConfig.address,
+    network: cryptoConfig.networks[0],
+    asset: "USDC",
+    amount: cryptoConfig.amountSmallestUnit,
+    amountFormatted: formatPrice(cryptoConfig.pricePerCallUsd * 100, "usd"),
+  };
+}
+
 export function paymentRequired(
   config: ResolvedConfig,
   purchaseUrl: string,
+  cryptoConfig?: ResolvedConfig["crypto"],
 ): GateResponse402 {
   const { credits } = config;
+  const crypto = buildCryptoInfo(cryptoConfig ?? null);
   return {
     error: "payment_required",
     message: `This endpoint requires an API key. Purchase ${formatCredits(credits.amount)} calls for ${formatPrice(credits.price, credits.currency)}.`,
@@ -61,6 +81,7 @@ export function paymentRequired(
         formatted: `${formatPrice(credits.price, credits.currency)} for ${formatCredits(credits.amount)} API calls`,
       },
     },
+    ...(crypto ? { crypto } : {}),
   };
 }
 
@@ -68,8 +89,10 @@ export function creditsExhausted(
   config: ResolvedConfig,
   purchaseUrl: string,
   apiKey?: string,
+  cryptoConfig?: ResolvedConfig["crypto"],
 ): GateResponse402 {
   const { credits } = config;
+  const crypto = buildCryptoInfo(cryptoConfig ?? null);
   return {
     error: "credits_exhausted",
     message: `Your API key has no remaining credits. Purchase ${formatCredits(credits.amount)} more calls for ${formatPrice(credits.price, credits.currency)}.`,
@@ -92,6 +115,7 @@ export function creditsExhausted(
           },
         }
       : {}),
+    ...(crypto ? { crypto } : {}),
   };
 }
 

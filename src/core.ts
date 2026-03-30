@@ -6,6 +6,13 @@ import type {
 import { extractKeyFromRequest } from "./keys.js";
 import { classifyClient } from "./detect.js";
 import { paymentRequired, creditsExhausted } from "./errors.js";
+import {
+  hasX402Payment,
+  extractX402Payment,
+  verifyX402Payment,
+  buildX402PaymentRequired,
+} from "./crypto/x402.js";
+import { hasMppPayment, verifyMppCredential } from "./crypto/mpp.js";
 
 export async function handleGatedRequest(
   ctx: GateRequestContext,
@@ -14,6 +21,61 @@ export async function handleGatedRequest(
 ): Promise<GateResult> {
   const { store, failMode } = config;
   const cost = options?.cost ?? 1;
+
+  // --- Crypto payment check (runs BEFORE key check) ---
+  if (config.crypto) {
+    // x402 protocol check
+    if (hasX402Payment(ctx.headers)) {
+      const payment = extractX402Payment(ctx.headers);
+      if (payment) {
+        const requirements = buildX402PaymentRequired(config, ctx.url, cost);
+        const matchedReq =
+          requirements.accepts.find(
+            (a) => a.network === payment.accepted?.network,
+          ) || requirements.accepts[0];
+
+        const verification = await verifyX402Payment(
+          config.crypto.facilitatorUrl,
+          payment,
+          matchedReq,
+        );
+
+        if (verification.isValid) {
+          return {
+            action: "pass_crypto",
+            payer: verification.payer || "unknown",
+            protocol: "x402" as const,
+          };
+        }
+        return {
+          action: "error",
+          status: 402,
+          message: verification.invalidReason || "Payment verification failed",
+        };
+      }
+    }
+
+    // MPP protocol check
+    if (hasMppPayment(ctx.headers)) {
+      const auth = ctx.headers["authorization"] || "";
+      const result = verifyMppCredential(auth, config.crypto.mppSecret);
+      if (result.valid) {
+        return {
+          action: "pass_crypto",
+          payer: result.payer || "unknown",
+          protocol: "mpp" as const,
+          txHash: (result.payload?.hash as string) || undefined,
+        };
+      }
+      return {
+        action: "error",
+        status: 402,
+        message: result.error || "Payment verification failed",
+      };
+    }
+  }
+
+  // --- API key check ---
   const apiKey = ctx.apiKey ?? extractKeyFromRequest(ctx.headers, ctx.url);
 
   if (apiKey) {
@@ -29,7 +91,7 @@ export async function handleGatedRequest(
           const purchaseUrl = buildPurchaseUrl(config, ctx);
           return {
             action: "payment_required",
-            body: creditsExhausted(config, purchaseUrl, apiKey),
+            body: creditsExhausted(config, purchaseUrl, apiKey, config.crypto),
             status: 402,
           };
         }
@@ -45,6 +107,7 @@ export async function handleGatedRequest(
     }
   }
 
+  // --- No key, no crypto payment ---
   const purchaseUrl = buildPurchaseUrl(config, ctx);
   const clientType = ctx.clientType ?? classifyClient(ctx.headers);
 
@@ -54,7 +117,7 @@ export async function handleGatedRequest(
 
   return {
     action: "payment_required",
-    body: paymentRequired(config, purchaseUrl),
+    body: paymentRequired(config, purchaseUrl, config.crypto),
     status: 402,
   };
 }

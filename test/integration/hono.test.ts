@@ -139,4 +139,73 @@ describe("hono adapter integration", () => {
     expect(res.status).toBe(200);
     expect(body.credits_remaining).toBe(42);
   });
+
+  describe("crypto headers", () => {
+    function buildCryptoApp() {
+      const app = new Hono();
+      const billing = mountGate({
+        credits: { amount: 100, price: 500 },
+        crypto: {
+          address: "0x" + "a".repeat(40),
+          pricePerCall: 0.005,
+        },
+      });
+
+      app.use("/api/*", billing.middleware);
+      app.get("/api/data", (c) => c.json({ ok: true }));
+
+      const gateRoutes = new Hono();
+      billing.routes(gateRoutes);
+      app.route("/__gate", gateRoutes);
+
+      return { app, billing };
+    }
+
+    it("402 includes PAYMENT-REQUIRED header when crypto configured", async () => {
+      const { app } = buildCryptoApp();
+
+      const res = await app.request("http://localhost/api/data", {
+        headers: { accept: "application/json", "user-agent": "curl/8.0" },
+      });
+
+      expect(res.status).toBe(402);
+      const pr = res.headers.get("payment-required");
+      expect(pr).toBeTruthy();
+
+      // Decode and verify structure
+      const decoded = JSON.parse(atob(pr!));
+      expect(decoded.x402Version).toBe(2);
+      expect(decoded.accepts).toBeInstanceOf(Array);
+      expect(decoded.accepts[0].payTo).toBe("0x" + "a".repeat(40));
+      expect(decoded.accepts[0].amount).toBe("5000");
+    });
+
+    it("402 includes WWW-Authenticate: Payment header when crypto configured", async () => {
+      const { app } = buildCryptoApp();
+
+      const res = await app.request("http://localhost/api/data", {
+        headers: { accept: "application/json", "user-agent": "curl/8.0" },
+      });
+
+      expect(res.status).toBe(402);
+      const wwwAuth = res.headers.get("www-authenticate");
+      expect(wwwAuth).toBeTruthy();
+      expect(wwwAuth).toContain("Payment ");
+      expect(wwwAuth).toContain('method="tempo"');
+      expect(wwwAuth).toContain('intent="charge"');
+    });
+
+    it("402 omits crypto headers when crypto not configured", async () => {
+      const { app } = buildHonoApp();
+
+      const res = await app.request("http://localhost/api/data", {
+        headers: { accept: "application/json", "user-agent": "curl/8.0" },
+      });
+
+      expect(res.status).toBe(402);
+      expect(res.headers.get("payment-required")).toBeNull();
+      expect(res.headers.get("www-authenticate")).toBeNull();
+      expect(res.headers.get("x-payment-protocol")).toBe("gate/v1");
+    });
+  });
 });
